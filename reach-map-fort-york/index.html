@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Reach map — 215 Fort York Blvd</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#12212B;
+    --ink-soft:#3D5766;
+    --paper:#F7F5F0;
+    --line:rgba(255,255,255,.14);
+    --walk:#1F6F6B;
+    --ttc:#C8102E;
+    --on-ink:#E9F0F3;
+    --on-ink-dim:#9FB3BE;
+    --panel-pad:20px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    font-family:"Archivo",system-ui,-apple-system,"Segoe UI",sans-serif;
+    background:var(--ink);
+    color:var(--on-ink);
+    -webkit-font-smoothing:antialiased;
+    overflow:hidden;
+  }
+  #map{position:absolute;inset:0;background:var(--paper)}
+  .leaflet-container{font-family:inherit}
+
+  .panel{
+    position:absolute;z-index:1000;
+    background:var(--ink);
+    color:var(--on-ink);
+    border-radius:14px;
+    box-shadow:0 12px 40px rgba(10,22,30,.32);
+    padding:var(--panel-pad);
+  }
+
+  /* desktop: floating card, left */
+  @media (min-width:760px){
+    .panel{top:18px;left:18px;width:340px}
+  }
+  /* mobile: docked sheet, bottom */
+  @media (max-width:759px){
+    .panel{
+      left:0;right:0;bottom:0;
+      border-radius:16px 16px 0 0;
+      padding:16px 16px calc(16px + env(safe-area-inset-bottom));
+    }
+  }
+
+  .place{
+    display:flex;gap:8px;align-items:center;
+    border-bottom:1px solid var(--line);
+    padding-bottom:12px;margin-bottom:14px;
+  }
+  .place input{
+    flex:1;min-width:0;
+    background:transparent;border:0;outline:none;
+    color:var(--on-ink);
+    font:500 15px/1.3 "Archivo",sans-serif;
+    padding:4px 0;
+  }
+  .place input::placeholder{color:var(--on-ink-dim)}
+  .place button{
+    flex:none;background:rgba(255,255,255,.09);
+    border:0;border-radius:7px;
+    color:var(--on-ink);
+    font:500 13px "Archivo",sans-serif;
+    padding:7px 11px;cursor:pointer;
+  }
+  .place button:hover{background:rgba(255,255,255,.16)}
+  .place button:focus-visible,.mode button:focus-visible,input:focus-visible{outline:2px solid #7FD3CE;outline-offset:2px}
+
+  .mode{display:flex;gap:6px;background:rgba(255,255,255,.07);border-radius:9px;padding:4px}
+  .mode button{
+    flex:1;border:0;border-radius:6px;background:transparent;
+    color:var(--on-ink-dim);
+    font:500 14px "Archivo",sans-serif;
+    padding:9px 0;cursor:pointer;transition:background .12s,color .12s;
+  }
+  .mode button[aria-pressed="true"]{background:var(--on-ink);color:var(--ink);font-weight:600}
+
+  .timeofday{display:none;margin-top:14px}
+  .timeofday.on{display:block}
+  .tod-head{
+    display:flex;justify-content:space-between;align-items:baseline;
+    font:500 13.5px "Archivo",sans-serif;color:var(--on-ink);
+  }
+  #tod-label{color:var(--on-ink-dim);font-weight:400}
+  #clock{margin:9px 0 0}
+  #clock::-webkit-slider-thumb{width:18px;height:18px;margin-top:-7.5px}
+  #clock::-moz-range-thumb{width:18px;height:18px}
+  .switch{
+    display:flex;align-items:center;gap:9px;margin-top:12px;cursor:pointer;
+    font:400 13px "Archivo",sans-serif;color:var(--on-ink-dim);
+  }
+  .switch input{accent-color:var(--ttc);width:16px;height:16px;margin:0;cursor:pointer}
+  .switch:has(input:checked){color:var(--on-ink)}
+
+  .readout{display:flex;align-items:baseline;gap:8px;margin:18px 0 2px}
+  .readout .num{
+    font:600 58px/1 "Archivo",sans-serif;
+    font-feature-settings:"tnum" 1;
+    letter-spacing:-.02em;
+  }
+  .readout .unit{font:500 15px "Archivo",sans-serif;color:var(--on-ink-dim)}
+  .readout .swatch{width:12px;height:12px;border-radius:3px;margin-left:auto;align-self:center}
+
+  input[type=range]{
+    width:100%;margin:14px 0 6px;
+    -webkit-appearance:none;appearance:none;background:transparent;
+  }
+  input[type=range]::-webkit-slider-runnable-track{height:3px;background:rgba(255,255,255,.22);border-radius:2px}
+  input[type=range]::-moz-range-track{height:3px;background:rgba(255,255,255,.22);border-radius:2px}
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:24px;height:24px;border-radius:50%;
+    background:var(--on-ink);margin-top:-10.5px;cursor:grab;border:0;
+    box-shadow:0 2px 6px rgba(0,0,0,.35);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:24px;height:24px;border-radius:50%;background:var(--on-ink);
+    cursor:grab;border:0;box-shadow:0 2px 6px rgba(0,0,0,.35);
+  }
+  .scale{display:flex;justify-content:space-between;font:400 12px "Archivo",sans-serif;color:var(--on-ink-dim)}
+
+  .note{
+    margin-top:14px;padding-top:12px;border-top:1px solid var(--line);
+    font:400 12.5px/1.45 "Archivo",sans-serif;color:var(--on-ink-dim);
+    min-height:36px;
+  }
+  .note b{color:var(--on-ink);font-weight:500}
+  .busy{display:inline-block;width:7px;height:7px;border-radius:50%;background:#7FD3CE;margin-right:6px;vertical-align:1px;animation:pulse 1s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
+  @media (prefers-reduced-motion:reduce){.busy{animation:none;opacity:.8}}
+
+  .origin-dot{
+    width:15px;height:15px;border-radius:50%;
+    background:var(--ink);border:3px solid #fff;
+    box-shadow:0 1px 5px rgba(0,0,0,.4);
+  }
+  .leaflet-tooltip.stop-tip{
+    background:var(--ink);color:var(--on-ink);border:0;
+    font:500 12px "Archivo",sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.3);
+  }
+  .leaflet-tooltip.stop-tip:before{display:none}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="panel">
+  <div class="place">
+    <input id="addr" value="215 Fort York Blvd, Toronto" aria-label="Centre address" autocomplete="off">
+    <button id="find">Move pin</button>
+  </div>
+
+  <div class="mode" role="group" aria-label="Travel mode">
+    <button id="m-walk" aria-pressed="true">Walking</button>
+    <button id="m-ttc" aria-pressed="false">TTC</button>
+  </div>
+
+  <div class="timeofday" id="tod">
+    <div class="tod-head"><span id="tod-time">8:30 am</span><span id="tod-label">morning rush</span></div>
+    <input type="range" id="clock" min="0" max="47" step="1" value="7" aria-label="Time of day">
+    <label class="switch"><input type="checkbox" id="direct" checked> One vehicle only, no transfers</label>
+  </div>
+
+  <div class="readout">
+    <span class="num" id="num">20</span>
+    <span class="unit">minutes from the pin</span>
+    <span class="swatch" id="swatch"></span>
+  </div>
+
+  <input type="range" id="mins" min="5" max="60" step="1" value="20" aria-label="Minutes of travel">
+  <div class="scale"><span>5</span><span>60</span></div>
+
+  <label class="switch"><input type="checkbox" id="homes" checked> Only where homes are allowed</label>
+
+  <div class="note" id="note"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+<script>
+/* ---------------------------------------------------------------
+   Reach map — how far you can get in N minutes from a Toronto pin.
+   Walking  : real street-network isochrone (Valhalla / OpenStreetMap)
+   TTC      : modelled subway + streetcar trip, then walking shells
+   --------------------------------------------------------------- */
+
+const START = { lat: 43.6386, lon: -79.4030 };   // 215 Fort York Blvd (refined by geocoder on load)
+let origin = { ...START };
+let mode = 'walk';
+let clock = 8.5;            // hours on a 5:00-to-29:00 axis
+let direct = true;          // one vehicle only
+let homesOnly = true;       // clip the shape to residential zoning
+let minutes = 20;
+
+/* ---------- map ---------- */
+const map = L.map('map', { zoomControl: false, attributionControl: true })
+  .setView([origin.lat, origin.lon], 13);
+L.control.zoom({ position: 'topright' }).addTo(map);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap &copy; CARTO · routing by Valhalla/FOSSGIS',
+  maxZoom: 19
+}).addTo(map);
+
+map.createPane('labels');
+map.getPane('labels').style.zIndex = 650;
+map.getPane('labels').style.pointerEvents = 'none';
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
+  pane: 'labels', maxZoom: 19
+}).addTo(map);
+
+const marker = L.marker([origin.lat, origin.lon], {
+  draggable: true,
+  icon: L.divIcon({ className: '', html: '<div class="origin-dot"></div>', iconSize: [15, 15], iconAnchor: [7.5, 7.5] })
+}).addTo(map);
+
+marker.on('dragend', () => {
+  const p = marker.getLatLng();
+  origin = { lat: p.lat, lon: p.lng };
+  document.getElementById('addr').value = `${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}`;
+  compute();
+});
+
+let shapeLayer = null, stopLayer = null, homesLayer = null;
+
+/* ---------- TTC network (subway + the streetcar lines that matter here) ---------- */
+const S = {
+  // Line 1
+  eglinton_w:[43.7000,-79.4358,'Eglinton West'], st_clair_w:[43.6840,-79.4148,'St Clair West'],
+  dupont:[43.6746,-79.4070,'Dupont'], spadina_stn:[43.6673,-79.4041,'Spadina'],
+  st_george:[43.6680,-79.3996,'St George'], museum:[43.6672,-79.3936,'Museum'],
+  queens_park:[43.6597,-79.3917,"Queen's Park"], st_patrick:[43.6548,-79.3885,'St Patrick'],
+  osgoode:[43.6509,-79.3866,'Osgoode'], st_andrew:[43.6476,-79.3846,'St Andrew'],
+  union:[43.6453,-79.3806,'Union'], king_stn:[43.6491,-79.3779,'King'],
+  queen_stn:[43.6525,-79.3793,'Queen'], dundas_stn:[43.6561,-79.3806,'Dundas'],
+  college_stn:[43.6614,-79.3833,'College'], wellesley:[43.6656,-79.3838,'Wellesley'],
+  bloor_yonge:[43.6709,-79.3858,'Bloor-Yonge'], rosedale:[43.6768,-79.3885,'Rosedale'],
+  summerhill:[43.6822,-79.3906,'Summerhill'], st_clair:[43.6876,-79.3931,'St Clair'],
+  davisville:[43.6977,-79.3972,'Davisville'], eglinton:[43.7057,-79.3983,'Eglinton'],
+  // Line 2
+  kipling:[43.6366,-79.5359,'Kipling'], islington:[43.6453,-79.5241,'Islington'],
+  royal_york:[43.6480,-79.5112,'Royal York'], old_mill:[43.6503,-79.4948,'Old Mill'],
+  jane:[43.6497,-79.4843,'Jane'], runnymede:[43.6517,-79.4757,'Runnymede'],
+  high_park:[43.6544,-79.4665,'High Park'], keele:[43.6558,-79.4593,'Keele'],
+  dundas_west:[43.6570,-79.4527,'Dundas West'], lansdowne:[43.6592,-79.4426,'Lansdowne'],
+  dufferin_stn:[43.6600,-79.4356,'Dufferin'], ossington:[43.6621,-79.4262,'Ossington'],
+  christie:[43.6642,-79.4184,'Christie'], bathurst_stn:[43.6660,-79.4113,'Bathurst'],
+  bay:[43.6700,-79.3900,'Bay'], sherbourne:[43.6722,-79.3766,'Sherbourne'],
+  castle_frank:[43.6738,-79.3687,'Castle Frank'], broadview:[43.6768,-79.3585,'Broadview'],
+  chester:[43.6784,-79.3521,'Chester'], pape:[43.6797,-79.3452,'Pape'],
+  donlands:[43.6809,-79.3379,'Donlands'], greenwood:[43.6824,-79.3302,'Greenwood'],
+  coxwell:[43.6840,-79.3229,'Coxwell'], woodbine:[43.6866,-79.3125,'Woodbine'],
+  main_st:[43.6890,-79.3016,'Main Street'],
+  // 509 / waterfront
+  exhibition:[43.6345,-79.4185,'Exhibition'], fleet_strachan:[43.6360,-79.4128,'Fleet at Strachan'],
+  fleet_fortyork:[43.6373,-79.4062,'Fleet at Fort York'], fleet_bathurst:[43.6366,-79.4032,'Fleet at Bathurst'],
+  qq_spadina:[43.6387,-79.3912,'Queens Quay at Spadina'], qq_rees:[43.6401,-79.3853,'Queens Quay at Rees'],
+  qq_simcoe:[43.6412,-79.3820,'Queens Quay at Simcoe'],
+  // 511 Bathurst
+  bathurst_front:[43.6421,-79.4020,'Bathurst at Front'], bathurst_king:[43.6444,-79.4025,'Bathurst at King'],
+  bathurst_queen:[43.6473,-79.4033,'Bathurst at Queen'], bathurst_dundas:[43.6510,-79.4043,'Bathurst at Dundas'],
+  bathurst_college:[43.6553,-79.4055,'Bathurst at College'],
+  // 510 Spadina
+  spadina_front:[43.6432,-79.3958,'Spadina at Front'], spadina_king:[43.6452,-79.3953,'Spadina at King'],
+  spadina_queen:[43.6487,-79.3968,'Spadina at Queen'], spadina_dundas:[43.6524,-79.3980,'Spadina at Dundas'],
+  spadina_college:[43.6570,-79.3996,'Spadina at College'], spadina_harbord:[43.6603,-79.4009,'Spadina at Harbord'],
+  // 504 King
+  king_strachan:[43.6428,-79.4104,'King at Strachan'], king_john:[43.6465,-79.3897,'King at John'],
+  king_jarvis:[43.6503,-79.3723,'King at Jarvis'], king_parliament:[43.6528,-79.3620,'King at Parliament'],
+  king_sumach:[43.6549,-79.3575,'King at Sumach'],
+  // 501 Queen
+  queen_dufferin:[43.6435,-79.4285,'Queen at Dufferin'], queen_ossington:[43.6455,-79.4195,'Queen at Ossington'],
+  queen_jarvis:[43.6537,-79.3735,'Queen at Jarvis'], queen_parliament:[43.6560,-79.3634,'Queen at Parliament'],
+  queen_broadview:[43.6588,-79.3500,'Queen at Broadview']
+};
+
+const LINES = [
+  { name:'Line 1', kind:'subway', stops:['eglinton_w','st_clair_w','dupont','spadina_stn','st_george','museum','queens_park','st_patrick','osgoode','st_andrew','union','king_stn','queen_stn','dundas_stn','college_stn','wellesley','bloor_yonge','rosedale','summerhill','st_clair','davisville','eglinton'] },
+  { name:'Line 2', kind:'subway', stops:['kipling','islington','royal_york','old_mill','jane','runnymede','high_park','keele','dundas_west','lansdowne','dufferin_stn','ossington','christie','bathurst_stn','spadina_stn','st_george','bay','bloor_yonge','sherbourne','castle_frank','broadview','chester','pape','donlands','greenwood','coxwell','woodbine','main_st'] },
+  { name:'509', kind:'streetcar', stops:['exhibition','fleet_strachan','fleet_fortyork','fleet_bathurst','qq_spadina','qq_rees','qq_simcoe','union'] },
+  { name:'511', kind:'streetcar', stops:['exhibition','fleet_bathurst','bathurst_front','bathurst_king','bathurst_queen','bathurst_dundas','bathurst_college','bathurst_stn'] },
+  { name:'510', kind:'streetcar', stops:['qq_spadina','spadina_front','spadina_king','spadina_queen','spadina_dundas','spadina_college','spadina_harbord','spadina_stn'] },
+  { name:'504', kind:'streetcar', stops:['king_strachan','bathurst_king','spadina_king','king_john','st_andrew','king_stn','king_jarvis','king_parliament','king_sumach'] },
+  { name:'501', kind:'streetcar', stops:['queen_dufferin','queen_ossington','bathurst_queen','spadina_queen','osgoode','queen_stn','queen_jarvis','queen_parliament','queen_broadview'] }
+];
+
+/* TTC's own weekday service periods (Service Summary, 2026), with typical
+   headways for the subway and for the streetcar routes near the waterfront.
+   Wait is half the headway. Surface speeds fall at rush hour and rise late
+   at night; subway speed barely moves, so the two effects pull apart.
+   Hours run on a 5:00-to-29:00 axis so the overnight period stays contiguous. */
+const REGIMES = [
+  { key:'early', from:5,    to:6,    label:'before the subway opens',
+    off:['Line 1','Line 2'],
+    speed:{ subway:31.5, streetcar:17 }, dwell:{ subway:.4, streetcar:.2 }, wait:{ subway:99, streetcar:6 } },
+  { key:'am',    from:6,    to:9,    label:'morning rush',
+    speed:{ subway:29.5, streetcar:11 }, dwell:{ subway:.55, streetcar:.35 }, wait:{ subway:1.4, streetcar:2.5 } },
+  { key:'mid',   from:9,    to:15,   label:'midday',
+    speed:{ subway:31,   streetcar:13 }, dwell:{ subway:.4, streetcar:.25 }, wait:{ subway:2.3, streetcar:3.5 } },
+  { key:'pm',    from:15,   to:19,   label:'afternoon rush',
+    speed:{ subway:29.5, streetcar:10 }, dwell:{ subway:.55, streetcar:.35 }, wait:{ subway:1.4, streetcar:2.75 } },
+  { key:'eve',   from:19,   to:22,   label:'early evening',
+    speed:{ subway:31.5, streetcar:14 }, dwell:{ subway:.4, streetcar:.2 }, wait:{ subway:2.5, streetcar:4 } },
+  { key:'late',  from:22,   to:25.5, label:'late evening',
+    speed:{ subway:31.5, streetcar:16 }, dwell:{ subway:.4, streetcar:.2 }, wait:{ subway:3, streetcar:5.5 } },
+  { key:'night', from:25.5, to:29,   label:'Blue Night network',
+    off:['Line 1','509','511'], as:{ 'Line 2':'streetcar' },
+    speed:{ subway:31.5, streetcar:19 }, dwell:{ subway:.4, streetcar:.3 }, wait:{ subway:99, streetcar:15 } }
+];
+const regimeAt = t => REGIMES.find(r => t >= r.from && t < r.to) || REGIMES[REGIMES.length - 1];
+const DETOUR = { subway: 1.0, streetcar: 1.12 };
+const WALK_KMH = 4.8;
+const WALK_DETOUR = 1.35;   // straight line -> street distance
+const MAX_ACCESS_WALK = 18; // min of walking to reach a first stop
+
+function hav(a, b){
+  const R = 6371, t = Math.PI/180;
+  const dLat = (b[0]-a[0])*t, dLon = (b[1]-a[1])*t;
+  const s = Math.sin(dLat/2)**2 + Math.cos(a[0]*t)*Math.cos(b[0]*t)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(s));
+}
+const walkMin = km => km * WALK_DETOUR / WALK_KMH * 60;
+
+const ids = Object.keys(S);
+const graphs = {};
+
+function graph(regimeKey){
+  if (graphs[regimeKey]) return graphs[regimeKey];
+  const R = REGIMES.find(r => r.key === regimeKey), E = {};
+  const addEdge = (a, b, cost, kind, line) => {
+    (E[a] ||= []).push({ to:b, cost, kind, line });
+    (E[b] ||= []).push({ to:a, cost, kind, line });
+  };
+  for (const line of LINES){
+    if (R.off && R.off.includes(line.name)) continue;      // not running at this hour
+    const kind = (R.as && R.as[line.name]) || line.kind;   // subway alignment run by night bus
+    for (let i = 0; i < line.stops.length - 1; i++){
+      const a = line.stops[i], b = line.stops[i+1];
+      const km = hav(S[a], S[b]) * DETOUR[line.kind];
+      addEdge(a, b, km / R.speed[kind] * 60 + R.dwell[kind], kind, line.name);
+    }
+  }
+  // short walking transfers between nearby stops
+  for (let i = 0; i < ids.length; i++)
+    for (let j = i+1; j < ids.length; j++){
+      const km = hav(S[ids[i]], S[ids[j]]);
+      if (km < 0.28) addEdge(ids[i], ids[j], walkMin(km) + 1, 'walk');
+    }
+  return (graphs[regimeKey] = E);
+}
+
+/* Earliest arrival at every stop. State is (stop, line you are currently on),
+   so a change of line is a real transfer — and can be forbidden outright. */
+function ttcArrivals(from, budget, regimeKey){
+  const EDGES = graph(regimeKey), WAIT = REGIMES.find(r => r.key === regimeKey).wait;
+  const best = {}, seen = {}, pq = [];
+  for (const id of ids){
+    const t = walkMin(hav([from.lat, from.lon], S[id]));
+    if (t <= Math.min(budget, MAX_ACCESS_WALK)) pq.push({ id, t, line: null });
+  }
+  while (pq.length){
+    pq.sort((a,b) => a.t - b.t);
+    const cur = pq.shift();
+    const state = cur.id + '|' + (cur.line || '');
+    if (seen[state] !== undefined && seen[state] <= cur.t) continue;
+    seen[state] = cur.t;
+    if (best[cur.id] === undefined || cur.t < best[cur.id]) best[cur.id] = cur.t;
+
+    for (const e of (EDGES[cur.id] || [])){
+      let t;
+      if (e.kind === 'walk'){
+        // walking between stops only counts as access before you board
+        if (direct && cur.line) continue;
+        t = cur.t + e.cost;
+        if (t <= budget) pq.push({ id: e.to, t, line: cur.line });
+      } else {
+        if (direct && cur.line && e.line !== cur.line) continue;
+        const board = cur.line === e.line ? 0 : WAIT[e.kind];
+        t = cur.t + e.cost + board;
+        if (t <= budget) pq.push({ id: e.to, t, line: e.line });
+      }
+    }
+  }
+  return best;
+}
+
+/* ---------- shapes ---------- */
+const LAKE = turf.polygon([[
+  [-79.5200,43.6280],[-79.4700,43.6300],[-79.4300,43.6300],[-79.4100,43.6318],
+  [-79.4020,43.6348],[-79.3900,43.6372],[-79.3800,43.6392],[-79.3700,43.6416],
+  [-79.3560,43.6436],[-79.3400,43.6448],[-79.3200,43.6440],[-79.3200,43.5700],
+  [-79.5200,43.5700],[-79.5200,43.6280]
+]]);
+
+function union2(a, b){
+  if (!a) return b; if (!b) return a;
+  try { const r = turf.union(turf.featureCollection([a, b])); if (r) return r; } catch(e){}
+  try { const r = turf.union(a, b); if (r) return r; } catch(e){}
+  return a;
+}
+function clipLake(f){
+  try {
+    const r = turf.difference(turf.featureCollection([f, LAKE])) || turf.difference(f, LAKE);
+    return r || f;
+  } catch(e){ try { return turf.difference(f, LAKE) || f; } catch(e2){ return f; } }
+}
+
+async function valhallaWalk(lat, lon, mins){
+  const q = {
+    locations:[{ lat, lon }],
+    costing:'pedestrian',
+    contours:[{ time: mins }],
+    polygons:true, denoise:0.4, generalize:25
+  };
+  const url = 'https://valhalla1.openstreetmap.de/isochrone?json=' + encodeURIComponent(JSON.stringify(q));
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('routing service ' + res.status);
+  const data = await res.json();
+  const f = (data.features || []).filter(x => x.geometry &&
+    (x.geometry.type === 'Polygon' || x.geometry.type === 'MultiPolygon'));
+  if (!f.length) throw new Error('no polygon returned');
+  return f.reduce((acc, x) => union2(acc, turf.feature(x.geometry)), null);
+}
+
+const blob = (lat, lon, mins) =>
+  turf.circle([lon, lat], mins / 60 * WALK_KMH * 0.74, { steps: 56, units:'kilometers' });
+
+/* ---------- zoning (City of Toronto, By-law 569-2013) ---------- */
+const ZONING_URL = 'https://gis.toronto.ca/arcgis/rest/services/cot_geospatial11/FeatureServer/3/query';
+const ZONE_CODE = /^(RD|RS|RT|RM|RA|R|CRE|CR|CL|C|EL|EH|EO|E|IH|IPU|IE|I|ON|OR|OG|OM|OC|O|UT)$/;
+const ZONE_HOME = /^(RD|RS|RT|RM|RA|R|CRE|CR)$/;   // categories that permit dwellings
+const zoneCache = new Map();
+
+// the layer's field naming isn't guaranteed, so find the zone code by its shape
+function zoneOf(props){
+  for (const v of Object.values(props || {})){
+    if (typeof v !== 'string') continue;
+    const z = v.trim().toUpperCase();
+    if (ZONE_CODE.test(z)) return z;
+  }
+  return null;
+}
+
+async function residentialAreas(shape){
+  const [w, s, e, n] = turf.bbox(shape);
+  const key = [w, s, e, n].map(x => x.toFixed(2)).join(',');
+  if (zoneCache.has(key)) return zoneCache.get(key);
+
+  const params = new URLSearchParams({
+    where: '1=1',
+    geometry: [w - .01, s - .01, e + .01, n + .01].join(','),
+    geometryType: 'esriGeometryEnvelope',
+    spatialRel: 'esriSpatialRelIntersects',
+    inSR: '4326', outSR: '4326',
+    outFields: '*',
+    maxAllowableOffset: '0.0002',   // generalize, or the payload is enormous
+    geometryPrecision: '5',
+    resultRecordCount: '2000',
+    returnGeometry: 'true',
+    f: 'geojson'
+  });
+  const res = await fetch(ZONING_URL + '?' + params);
+  if (!res.ok) throw new Error('zoning service ' + res.status);
+  const gj = await res.json();
+  if (gj.error) throw new Error('the zoning service refused the query');
+  const feats = (gj.features || []).filter(f => {
+    const z = zoneOf(f.properties);
+    return z && ZONE_HOME.test(z);
+  });
+  zoneCache.set(key, feats);
+  return feats;
+}
+
+function clipToShape(feats, shape){
+  let simple = shape;
+  try { simple = turf.simplify(shape, { tolerance: 0.00025, highQuality: false }); } catch(e){}
+  const inside = feats.filter(f => {
+    try { return turf.booleanPointInPolygon(turf.pointOnFeature(f), simple); } catch(e){ return false; }
+  });
+  if (inside.length && inside.length < 400){     // few enough to cut cleanly
+    const cut = [];
+    for (const f of inside){
+      try {
+        const i = turf.intersect(turf.featureCollection([f, simple])) || turf.intersect(f, simple);
+        if (i) cut.push(i);
+      } catch(e){ cut.push(f); }
+    }
+    if (cut.length) return cut;
+  }
+  return inside;
+}
+
+/* ---------- render ---------- */
+const el = id => document.getElementById(id);
+const noteEl = el('note');
+const cache = new Map();
+let token = 0, timer = null;
+
+function paint(shape, stops, homes){
+  if (shapeLayer) map.removeLayer(shapeLayer);
+  if (stopLayer) map.removeLayer(stopLayer);
+  if (homesLayer) map.removeLayer(homesLayer);
+  const colour = mode === 'walk' ? getCSS('--walk') : getCSS('--ttc');
+
+  if (homes && homes.length){
+    // fill only the land you could actually buy on; outline the full reach
+    homesLayer = L.geoJSON(turf.featureCollection(homes), {
+      style:{ stroke: false, fillColor: colour, fillOpacity: .32 }
+    }).addTo(map);
+    shapeLayer = L.geoJSON(shape, {
+      style:{ color: colour, weight: 1.5, opacity: .85, fill: false, dashArray: '4 3' }
+    }).addTo(map);
+  } else {
+    shapeLayer = L.geoJSON(shape, {
+      style:{ color: colour, weight: 1.5, opacity: .9, fillColor: colour, fillOpacity: .18 }
+    }).addTo(map);
+  }
+
+  if (stops && stops.length){
+    stopLayer = L.layerGroup(stops.map(s =>
+      L.circleMarker([s.lat, s.lon], {
+        radius: 3.5, color:'#fff', weight: 1.5, fillColor: colour, fillOpacity: 1
+      }).bindTooltip(`${s.name} · ${Math.round(s.t)} min`, { className:'stop-tip', direction:'top' })
+    )).addTo(map);
+  }
+}
+const getCSS = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+async function compute(){
+  const my = ++token;
+  const key = `${mode}|${regimeAt(clock).key}|${direct?'d':'x'}|${homesOnly?'h':'a'}|${minutes}|${origin.lat.toFixed(4)},${origin.lon.toFixed(4)}`;
+  el('swatch').style.background = mode === 'walk' ? getCSS('--walk') : getCSS('--ttc');
+
+  if (cache.has(key)){
+    const c = cache.get(key);
+    paint(c.shape, c.stops, c.homes); noteEl.innerHTML = c.note; return;
+  }
+
+  noteEl.innerHTML = '<span class="busy"></span>Working out the shape…';
+
+  try {
+    let shape, stops = null, note;
+
+    if (mode === 'walk'){
+      shape = clipLake(await valhallaWalk(origin.lat, origin.lon, minutes));
+      if (my !== token) return;
+      note = `Every street corner you can reach on foot in <b>${minutes} minutes</b>, following the real walking network.`;
+    } else {
+      const R = regimeAt(clock);
+      const arrivals = ttcArrivals(origin, minutes, R.key);
+      try { shape = await valhallaWalk(origin.lat, origin.lon, minutes); }
+      catch(e){ shape = blob(origin.lat, origin.lon, minutes); }
+      if (my !== token) return;
+
+      stops = [];
+      for (const [id, t] of Object.entries(arrivals)){
+        const left = minutes - t;
+        if (left < 1) continue;
+        stops.push({ id, t, lat: S[id][0], lon: S[id][1], name: S[id][2] });
+        shape = union2(shape, blob(S[id][0], S[id][1], left));
+      }
+      shape = clipLake(shape);
+      const shut = R.off ? R.off.join(', ') : '';
+      note = stops.length
+        ? `<b>${stops.length} stops</b> within ${minutes} minutes at ${fmtTime(clock)}, plus the walk at each end${direct ? ' on a single vehicle' : ''}.`
+          + (shut ? ` Not running at this hour: ${shut}.` : '')
+          + ` Built from TTC's published service periods and typical headways, not live vehicle positions.`
+        : `Nothing is reachable inside <b>${minutes} minutes</b> at ${fmtTime(clock)}`
+          + (shut ? ` — ${shut} not running` : '')
+          + `. This is the walking shape.`;
+    }
+
+    let homes = null;
+    if (homesOnly){
+      noteEl.innerHTML = '<span class="busy"></span>Checking what the zoning allows…';
+      try {
+        const feats = await residentialAreas(shape);
+        if (my !== token) return;
+        const cut = clipToShape(feats, shape);
+        if (cut.length){
+          homes = cut;
+          note += ` Shading covers land zoned for dwellings under Toronto By-law 569-2013; the dashed line is the full reach.`;
+        } else {
+          note += ` No residential zoning came back for this area, so the whole reach is shown.`;
+        }
+      } catch(err){
+        note += ` Zoning layer unavailable (${err.message}), so the reach is unclipped.`;
+      }
+    }
+
+    if (my !== token) return;
+    cache.set(key, { shape, stops, note, homes });
+    paint(shape, stops, homes); noteEl.innerHTML = note;
+
+  } catch (err){
+    if (my !== token) return;
+    const shape = clipLake(blob(origin.lat, origin.lon, minutes));
+    paint(shape, null, null);
+    noteEl.innerHTML = `The walking network didn't answer (${err.message}). This is a rough distance estimate instead — move the slider to try again.`;
+  }
+}
+
+/* ---------- controls ---------- */
+el('mins').addEventListener('input', e => {
+  minutes = +e.target.value;
+  el('num').textContent = minutes;
+  clearTimeout(timer);
+  timer = setTimeout(compute, 420);
+});
+
+function fmtTime(t){
+  const h24 = Math.floor(t) % 24, m = (t % 1) ? '30' : '00';
+  const ap = h24 < 12 ? 'am' : 'pm';
+  const h = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h}:${m} ${ap}`;
+}
+function paintClock(){
+  el('tod-time').textContent = fmtTime(clock);
+  el('tod-label').textContent = regimeAt(clock).label;
+}
+
+function setMode(m){
+  mode = m;
+  el('m-walk').setAttribute('aria-pressed', m === 'walk');
+  el('m-ttc').setAttribute('aria-pressed', m === 'ttc');
+  el('tod').classList.toggle('on', m === 'ttc');
+  compute();
+}
+el('m-walk').onclick = () => setMode('walk');
+el('m-ttc').onclick  = () => setMode('ttc');
+
+el('homes').addEventListener('change', e => { homesOnly = e.target.checked; compute(); });
+
+el('direct').addEventListener('change', e => { direct = e.target.checked; compute(); });
+
+el('clock').addEventListener('input', e => {
+  clock = 5 + (+e.target.value) * 0.5;
+  paintClock();
+  clearTimeout(timer);
+  timer = setTimeout(compute, 300);
+});
+
+async function geocode(text){
+  const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(text);
+  const res = await fetch(url, { headers: { 'Accept':'application/json' } });
+  const j = await res.json();
+  if (!j.length) throw new Error('no match');
+  return { lat: +j[0].lat, lon: +j[0].lon };
+}
+async function movePin(){
+  const text = el('addr').value.trim();
+  if (!text) return;
+  const m = text.match(/^\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*$/);
+  try {
+    const p = m ? { lat:+m[1], lon:+m[2] } : await geocode(text);
+    origin = p;
+    marker.setLatLng([p.lat, p.lon]);
+    map.panTo([p.lat, p.lon]);
+    cache.clear();
+    compute();
+  } catch(e){
+    noteEl.innerHTML = `Couldn't find that address. Try adding the city, or drag the pin instead.`;
+  }
+}
+el('find').onclick = movePin;
+el('addr').addEventListener('keydown', e => { if (e.key === 'Enter') movePin(); });
+
+/* ---------- start ---------- */
+el('swatch').style.background = getCSS('--walk');
+paintClock();
+compute();
+geocode('215 Fort York Blvd, Toronto, Ontario').then(p => {
+  if (el('addr').value.startsWith('215 Fort York')){
+    origin = p;
+    marker.setLatLng([p.lat, p.lon]);
+    map.setView([p.lat, p.lon], 13);
+    cache.clear();
+    compute();
+  }
+}).catch(() => {});
+</script>
+</body>
+</html>
