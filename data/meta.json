@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-13T21:25:49Z",
+  "generated": "2026-09-13T23:52:07Z",
   "zone_field": "ZN_ZONE",
   "parcels_residential": 6582,
   "parcels_by_form": {
@@ -38,7 +38,13 @@
       7793,
       11777
     ],
-    "megabytes": 1.83,
-    "generated": "2026-09-13T21:27:41Z"
+    "dwelling_breaks": [
+      1200,
+      2040,
+      3340,
+      5575
+    ],
+    "megabytes": 1.86,
+    "generated": "2026-09-13T23:54:29Z"
   }
 }
