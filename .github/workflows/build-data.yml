@@ -32,10 +32,10 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- data/; then
+          git add -A data/
+          if git diff --cached --quiet; then
             echo "No change — leaving the existing snapshot alone."
             exit 0
           fi
-          git add data/
           git commit -m "Update zoning snapshot"
           git push
