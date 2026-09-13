@@ -28,6 +28,9 @@ jobs:
       - name: Fetch zoning
         run: python scripts/fetch_zoning.py
 
+      - name: Fetch census density
+        run: python scripts/fetch_density.py
+
       - name: Commit if changed
         run: |
           git config user.name  "github-actions[bot]"
