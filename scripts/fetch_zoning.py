@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-Snapshot Toronto's residential-capable zoning into one dissolved polygon.
+Snapshot Toronto zoning into two dissolved polygons:
 
-Runs in GitHub Actions, not in the browser. Writes data/zoning-residential.geojson,
-which the map intersects against its reach shape. Doing the dissolve here means the
-page downloads one clean multipolygon instead of thousands of parcels.
+  data/zoning-residential.geojson  land where dwellings are permitted
+  data/zoning-nodata.geojson       land inside Toronto that By-law 569-2013
+                                   doesn't cover, so nothing can be said about it
 
-Source: City of Toronto, Zoning By-law 569-2013 (Zoning Area layer).
+The second file exists because absence of zoning is not the same as a prohibition.
+215 Fort York Blvd sits in one of these holes, governed by a former by-law.
+
+Runs in GitHub Actions. Source: City of Toronto, Zoning Area and City Ward layers.
 """
 
 import json
@@ -16,30 +19,30 @@ import time
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
-from shapely.geometry import shape, mapping
+from shapely.geometry import mapping, box, Polygon
 from shapely.ops import unary_union
 
-URL = "https://gis.toronto.ca/arcgis/rest/services/cot_geospatial11/FeatureServer/3/query"
+BASE = "https://gis.toronto.ca/arcgis/rest/services/cot_geospatial11/FeatureServer"
+ZONING, WARDS = f"{BASE}/3/query", f"{BASE}/0/query"
 
 # Everything reachable from 215 Fort York Blvd in 60 minutes, generously bounded.
 BBOX = (-79.58, 43.58, -79.26, 43.80)
 
-# Zone categories that permit dwellings.
 HOME = {"R", "RD", "RS", "RT", "RM", "RA", "CR", "CRE"}
-# Every category, used to work out which field holds the zone code.
-ALL = HOME | {"CL", "C", "EL", "EH", "EO", "E", "IH", "IPU", "IE", "I",
-              "ON", "OR", "OG", "OM", "OC", "O", "UT"}
+OTHER = {"CL", "C", "EL", "EH", "EO", "E", "IH", "IPU", "IE", "I",
+         "ON", "OR", "OG", "OM", "OC", "O", "UT"}
+ALL = HOME | OTHER
 
 PAGE = 1000
-SIMPLIFY_DEG = 0.00008     # roughly 8 m, enough to shed vertices without moving edges
-OUT = "data/zoning-residential.geojson"
+SIMPLIFY_DEG = 0.00008        # about 8 m
+MIN_HOLE_DEG2 = 2e-7          # drop slivers, roughly 2,000 m2
 
 
-def get(params, tries=4):
-    url = URL + "?" + urlencode(params)
+def get(url, params, tries=4):
+    full = url + "?" + urlencode(params)
     for attempt in range(tries):
         try:
-            with urlopen(url, timeout=120) as r:
+            with urlopen(full, timeout=180) as r:
                 return json.loads(r.read().decode())
         except Exception as exc:                       # noqa: BLE001
             if attempt == tries - 1:
@@ -48,17 +51,23 @@ def get(params, tries=4):
             time.sleep(3 * (attempt + 1))
 
 
-def find_zone_field():
-    """The layer's field naming isn't documented, so infer it from a sample."""
-    sample = get({
-        "where": "1=1",
+def base_params(**extra):
+    p = {
         "geometry": ",".join(map(str, BBOX)),
         "geometryType": "esriGeometryEnvelope",
         "spatialRel": "esriSpatialRelIntersects",
         "inSR": "4326", "outSR": "4326",
-        "outFields": "*", "returnGeometry": "false",
-        "resultRecordCount": "50", "f": "json",
-    })
+        "geometryPrecision": "6",
+        "f": "json",
+    }
+    p.update(extra)
+    return p
+
+
+def find_zone_field():
+    """The layer's field naming isn't documented, so infer it from a sample."""
+    sample = get(ZONING, base_params(where="1=1", outFields="*",
+                                     returnGeometry="false", resultRecordCount="50"))
     hits = {}
     for feat in sample.get("features", []):
         for key, val in (feat.get("attributes") or {}).items():
@@ -74,7 +83,6 @@ def find_zone_field():
 
 def esri_to_shapely(geom):
     """Esri rings: clockwise is an outer ring, counter-clockwise is a hole."""
-    from shapely.geometry import Polygon
     outers, holes = [], []
     for ring in geom.get("rings", []):
         if len(ring) < 4:
@@ -90,74 +98,91 @@ def esri_to_shapely(geom):
     return polys
 
 
-def fetch_all(field):
-    where = f"{field} IN (" + ",".join(f"'{z}'" for z in sorted(HOME)) + ")"
+def fetch_polygons(url, where, label, out_field="OBJECTID"):
     geoms, offset = [], 0
     while True:
-        page = get({
-            "where": where,
-            "geometry": ",".join(map(str, BBOX)),
-            "geometryType": "esriGeometryEnvelope",
-            "spatialRel": "esriSpatialRelIntersects",
-            "inSR": "4326", "outSR": "4326",
-            "outFields": field,
-            "returnGeometry": "true",
-            "maxAllowableOffset": "0.00005",
-            "geometryPrecision": "6",
-            "resultOffset": str(offset),
-            "resultRecordCount": str(PAGE),
-            "f": "json",
-        })
+        page = get(url, base_params(where=where,
+                                    outFields=out_field,
+                                    returnGeometry="true",
+                                    maxAllowableOffset="0.00005",
+                                    resultOffset=str(offset),
+                                    resultRecordCount=str(PAGE)))
         feats = page.get("features", [])
         for feat in feats:
             geoms.extend(esri_to_shapely(feat.get("geometry") or {}))
-        print(f"  {offset + len(feats)} features")
-        if not page.get("exceededTransferLimit") and len(feats) < PAGE:
-            break
         offset += len(feats)
-        if not feats:
+        print(f"  {label}: {offset} features")
+        if not feats or (not page.get("exceededTransferLimit") and len(feats) < PAGE):
             break
     return geoms
 
 
+def dissolve(geoms):
+    clean = [g if g.is_valid else g.buffer(0) for g in geoms]
+    return unary_union([g for g in clean if not g.is_empty])
+
+
+def write(path, geom, props):
+    with open(path, "w") as fh:
+        json.dump({"type": "Feature", "properties": props, "geometry": mapping(geom)},
+                  fh, separators=(",", ":"))
+    mb = os.path.getsize(path) / 1e6
+    print(f"wrote {path} ({mb:.2f} MB)")
+    return round(mb, 2)
+
+
 def main():
     field = find_zone_field()
-    geoms = [g for g in fetch_all(field) if g.is_valid or g.buffer(0).is_valid]
-    if not geoms:
-        raise SystemExit("No residential zoning returned — refusing to overwrite good data.")
 
-    print(f"dissolving {len(geoms)} parcels")
-    merged = unary_union([g if g.is_valid else g.buffer(0) for g in geoms])
-    merged = merged.simplify(SIMPLIFY_DEG, preserve_topology=True)
+    def in_list(codes):
+        return f"{field} IN (" + ",".join(f"'{z}'" for z in sorted(codes)) + ")"
+
+    homes_raw = fetch_polygons(ZONING, in_list(HOME), "residential", field)
+    if not homes_raw:
+        raise SystemExit("No residential zoning returned - refusing to overwrite good data.")
+    other_raw = fetch_polygons(ZONING, in_list(OTHER), "other zones", field)
+    wards_raw = fetch_polygons(WARDS, "1=1", "wards")
+
+    print("dissolving")
+    homes = dissolve(homes_raw).simplify(SIMPLIFY_DEG, preserve_topology=True)
+    covered = dissolve(homes_raw + other_raw)
+    city = dissolve(wards_raw) if wards_raw else box(*BBOX)
+
+    # Toronto land inside our window that the by-law says nothing about
+    window = box(*BBOX).intersection(city)
+    nodata = window.difference(covered).simplify(SIMPLIFY_DEG, preserve_topology=True)
+    if nodata.geom_type == "MultiPolygon":
+        parts = [p for p in nodata.geoms if p.area > MIN_HOLE_DEG2]
+        if parts:
+            nodata = unary_union(parts)
 
     os.makedirs("data", exist_ok=True)
-    out = {
-        "type": "Feature",
-        "properties": {
-            "source": "City of Toronto, Zoning By-law 569-2013",
-            "categories": sorted(HOME),
-            "note": "Areas outside By-law 569-2013 are absent, not unzoned.",
-            "generated": time.strftime("%Y-%m-%d"),
-        },
-        "geometry": mapping(merged),
-    }
-    with open(OUT, "w") as fh:
-        json.dump(out, fh, separators=(",", ":"))
-    size = os.path.getsize(OUT) / 1e6
-    print(f"wrote {OUT} ({size:.1f} MB)")
+    stamp = time.strftime("%Y-%m-%d")
+    mb_h = write("data/zoning-residential.geojson", homes, {
+        "source": "City of Toronto, Zoning By-law 569-2013",
+        "meaning": "Dwellings are permitted here.",
+        "categories": sorted(HOME), "generated": stamp})
+    mb_n = write("data/zoning-nodata.geojson", nodata, {
+        "source": "City of Toronto, Zoning By-law 569-2013",
+        "meaning": "Not covered by By-law 569-2013. Former by-laws apply; "
+                   "this is unknown, not prohibited.",
+        "generated": stamp})
 
-    # the run log isn't readable everywhere, so leave a summary in the repo
     with open("data/meta.json", "w") as fh:
         json.dump({
             "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "zone_field": field,
-            "parcels": len(geoms),
-            "megabytes": round(size, 2),
+            "parcels_residential": len(homes_raw),
+            "parcels_other": len(other_raw),
+            "ward_polygons": len(wards_raw),
+            "megabytes": {"residential": mb_h, "nodata": mb_n},
             "bbox": list(BBOX),
-            "categories": sorted(HOME),
+            "categories_residential": sorted(HOME),
         }, fh, indent=2)
-    if size > 40:
-        print("warning: large for a static asset, consider raising SIMPLIFY_DEG", file=sys.stderr)
+    print("wrote data/meta.json")
+
+    if mb_h + mb_n > 40:
+        print("warning: large for static assets, consider raising SIMPLIFY_DEG", file=sys.stderr)
 
 
 if __name__ == "__main__":
