@@ -34,6 +34,15 @@
     overflow:hidden;
   }
   #map{position:absolute;inset:0;background:var(--paper)}
+  /* drain the colour from the tiles only — overlays live in a different pane */
+  #map.grey .leaflet-tile-pane{filter:grayscale(1) contrast(.9) brightness(1.08)}
+  .grey-btn{
+    display:block;padding:0 9px;line-height:30px;height:30px;
+    background:#fff;color:#12212B;border-radius:4px;
+    font:500 12px "Archivo",sans-serif;text-decoration:none;
+    box-shadow:0 1px 5px rgba(0,0,0,.3);
+  }
+  .grey-btn:hover{background:#f4f4f4}
   .leaflet-container{font-family:inherit}
 
   .legend{
@@ -285,6 +294,27 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   attribution: '&copy; OpenStreetMap contributors · routing by Valhalla/FOSSGIS · zoning: City of Toronto',
   maxZoom: 19
 }).addTo(map);
+
+// greyscale basemap, on by default so the data reads clearly
+document.getElementById('map').classList.add('grey');
+const GreyToggle = L.Control.extend({
+  options: { position: 'topright' },
+  onAdd(){
+    const a = L.DomUtil.create('a', 'grey-btn');
+    a.href = '#';
+    a.textContent = 'Colour map';
+    a.setAttribute('role', 'button');
+    a.setAttribute('aria-pressed', 'true');
+    L.DomEvent.on(a, 'click', L.DomEvent.stop);
+    L.DomEvent.on(a, 'click', () => {
+      const grey = document.getElementById('map').classList.toggle('grey');
+      a.textContent = grey ? 'Colour map' : 'Grey map';
+      a.setAttribute('aria-pressed', grey);
+    });
+    return a;
+  }
+});
+map.addControl(new GreyToggle());
 
 const marker = L.marker([origin.lat, origin.lon], {
   draggable: true,
