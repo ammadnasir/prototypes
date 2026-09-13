@@ -68,9 +68,17 @@ def load_counts():
     i_den = find("density")
     i_pop = find("population", "2021")
     i_area = find("land area")
-    print(f"  using columns dguid={i_guid} density={i_den} pop={i_pop} area={i_area}")
+    i_dwell = find("total private dwellings")
+    print(f"  using columns dguid={i_guid} density={i_den} pop={i_pop} "
+          f"area={i_area} dwellings={i_dwell}")
     if i_guid is None or (i_den is None and (i_pop is None or i_area is None)):
         raise SystemExit(f"Unexpected column layout: {header}")
+
+    def num(row, i):
+        try:
+            return float(row[i].replace(",", "")) if i is not None and row[i].strip() else None
+        except (ValueError, IndexError):
+            return None
 
     out, sample = {}, None
     for row in reader:
@@ -80,15 +88,16 @@ def load_counts():
         if "S0512" not in guid:            # dissemination area records only
             continue
         dauid = guid[-8:]
-        try:
-            if i_den is not None and row[i_den].strip():
-                out[dauid] = float(row[i_den].replace(",", ""))
-            else:
-                pop = float(row[i_pop].replace(",", ""))
-                area = float(row[i_area].replace(",", ""))
-                out[dauid] = pop / area if area else 0.0
-        except (ValueError, IndexError):
+        area = num(row, i_area)
+        den = num(row, i_den)
+        pop = num(row, i_pop)
+        dwell = num(row, i_dwell)
+        if den is None and pop is not None and area:
+            den = pop / area
+        if den is None:
             continue
+        # dwellings per square km, so housing shows up even where zoning can't speak
+        out[dauid] = (den, (dwell / area) if (dwell is not None and area) else 0.0)
         if sample is None:
             sample = (dauid, out[dauid])
     print(f"  {len(out)} dissemination areas with counts, sample {sample}")
@@ -141,11 +150,12 @@ def main():
     from shapely.geometry import mapping
     feats = []
     for dauid, geom in shapes.items():
-        d = counts.get(dauid)
-        if d is None:
+        got = counts.get(dauid)
+        if got is None:
             continue
+        d, w = got
         feats.append({"type": "Feature",
-                      "properties": {"d": round(d)},
+                      "properties": {"d": round(d), "w": round(w)},
                       "geometry": mapping(geom)})
     print(f"  {len(feats)} areas matched to counts")
     if len(feats) < 100:
@@ -153,6 +163,8 @@ def main():
 
     vals = sorted(f["properties"]["d"] for f in feats if f["properties"]["d"] > 0)
     breaks = [vals[int(len(vals) * q)] for q in (0.2, 0.4, 0.6, 0.8)]
+    wvals = sorted(f["properties"]["w"] for f in feats if f["properties"]["w"] > 0)
+    wbreaks = [wvals[int(len(wvals) * q)] for q in (0.2, 0.4, 0.6, 0.8)] if wvals else []
 
     os.makedirs("data", exist_ok=True)
     with open(OUT, "w") as fh:
@@ -161,13 +173,16 @@ def main():
                        "source": "Statistics Canada, 2021 Census (dissemination areas)",
                        "units": "people per square kilometre",
                        "breaks": breaks,
+                       "dwelling_breaks": wbreaks,
                        "generated": time.strftime("%Y-%m-%d")},
                    "features": feats}, fh, separators=(",", ":"))
     mb = os.path.getsize(OUT) / 1e6
-    print(f"wrote {OUT} ({mb:.2f} MB), {len(feats)} areas, breaks {breaks}")
+    print(f"wrote {OUT} ({mb:.2f} MB), {len(feats)} areas")
+    print(f"  people/km2 breaks {breaks}")
+    print(f"  dwellings/km2 breaks {wbreaks}")
 
     meta = json.load(open("data/meta.json")) if os.path.exists("data/meta.json") else {}
-    meta["density"] = {"areas": len(feats), "breaks": breaks, "megabytes": round(mb, 2),
+    meta["density"] = {"areas": len(feats), "breaks": breaks, "dwelling_breaks": wbreaks, "megabytes": round(mb, 2),
                        "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ")}
     json.dump(meta, open("data/meta.json", "w"), indent=2)
 
