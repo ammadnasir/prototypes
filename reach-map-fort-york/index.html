@@ -232,7 +232,7 @@ marker.on('dragend', () => {
   compute();
 });
 
-let shapeLayer = null, stopLayer = null, homesLayer = null;
+let shapeLayer = null, stopLayer = null, homesLayer = null, unknownLayer = null;
 
 /* ---------- TTC network (subway + the streetcar lines that matter here) ---------- */
 const S = {
@@ -436,69 +436,29 @@ async function valhallaWalk(lat, lon, mins){
 const blob = (lat, lon, mins) =>
   turf.circle([lon, lat], mins / 60 * WALK_KMH * 0.74, { steps: 56, units:'kilometers' });
 
-/* ---------- zoning (City of Toronto, By-law 569-2013) ---------- */
-const ZONING_URL = 'https://gis.toronto.ca/arcgis/rest/services/cot_geospatial11/FeatureServer/3/query';
-const ZONE_CODE = /^(RD|RS|RT|RM|RA|R|CRE|CR|CL|C|EL|EH|EO|E|IH|IPU|IE|I|ON|OR|OG|OM|OC|O|UT)$/;
-const ZONE_HOME = /^(RD|RS|RT|RM|RA|R|CRE|CR)$/;   // categories that permit dwellings
-const zoneCache = new Map();
+/* ---------- zoning (static snapshots built by GitHub Actions) ---------- */
+const ZONE_FILES = {
+  homes:   '/data/zoning-residential.geojson',   // dwellings permitted
+  unknown: '/data/zoning-nodata.geojson'         // outside By-law 569-2013
+};
+let zoneData = null, zoneErr = null;
 
-// the layer's field naming isn't guaranteed, so find the zone code by its shape
-function zoneOf(props){
-  for (const v of Object.values(props || {})){
-    if (typeof v !== 'string') continue;
-    const z = v.trim().toUpperCase();
-    if (ZONE_CODE.test(z)) return z;
-  }
-  return null;
+async function loadZoning(){
+  if (zoneData || zoneErr) return zoneData;
+  try {
+    const [homes, unknown] = await Promise.all(
+      [ZONE_FILES.homes, ZONE_FILES.unknown].map(u =>
+        fetch(u).then(r => { if (!r.ok) throw new Error('file ' + r.status); return r.json(); })));
+    zoneData = { homes, unknown, generated: (homes.properties || {}).generated || '' };
+  } catch(err){ zoneErr = err; }
+  return zoneData;
 }
 
-async function residentialAreas(shape){
-  const [w, s, e, n] = turf.bbox(shape);
-  const key = [w, s, e, n].map(x => x.toFixed(2)).join(',');
-  if (zoneCache.has(key)) return zoneCache.get(key);
-
-  const params = new URLSearchParams({
-    where: '1=1',
-    geometry: [w - .01, s - .01, e + .01, n + .01].join(','),
-    geometryType: 'esriGeometryEnvelope',
-    spatialRel: 'esriSpatialRelIntersects',
-    inSR: '4326', outSR: '4326',
-    outFields: '*',
-    maxAllowableOffset: '0.0002',   // generalize, or the payload is enormous
-    geometryPrecision: '5',
-    resultRecordCount: '2000',
-    returnGeometry: 'true',
-    f: 'geojson'
-  });
-  const res = await fetch(ZONING_URL + '?' + params);
-  if (!res.ok) throw new Error('zoning service ' + res.status);
-  const gj = await res.json();
-  if (gj.error) throw new Error('the zoning service refused the query');
-  const feats = (gj.features || []).filter(f => {
-    const z = zoneOf(f.properties);
-    return z && ZONE_HOME.test(z);
-  });
-  zoneCache.set(key, feats);
-  return feats;
-}
-
-function clipToShape(feats, shape){
-  let simple = shape;
-  try { simple = turf.simplify(shape, { tolerance: 0.00025, highQuality: false }); } catch(e){}
-  const inside = feats.filter(f => {
-    try { return turf.booleanPointInPolygon(turf.pointOnFeature(f), simple); } catch(e){ return false; }
-  });
-  if (inside.length && inside.length < 400){     // few enough to cut cleanly
-    const cut = [];
-    for (const f of inside){
-      try {
-        const i = turf.intersect(turf.featureCollection([f, simple])) || turf.intersect(f, simple);
-        if (i) cut.push(i);
-      } catch(e){ cut.push(f); }
-    }
-    if (cut.length) return cut;
-  }
-  return inside;
+function cutTo(feature, shape){
+  try {
+    const i = turf.intersect(turf.featureCollection([feature, shape])) || turf.intersect(feature, shape);
+    return i && turf.area(i) > 1500 ? i : null;
+  } catch(e){ return null; }
 }
 
 /* ---------- render ---------- */
@@ -507,16 +467,21 @@ const noteEl = el('note');
 const cache = new Map();
 let token = 0, timer = null;
 
-function paint(shape, stops, homes){
+function paint(shape, stops, homes, unknown){
   if (shapeLayer) map.removeLayer(shapeLayer);
   if (stopLayer) map.removeLayer(stopLayer);
   if (homesLayer) map.removeLayer(homesLayer);
+  if (unknownLayer) map.removeLayer(unknownLayer);
   const colour = mode === 'walk' ? getCSS('--walk') : getCSS('--ttc');
 
-  if (homes && homes.length){
-    // fill only the land you could actually buy on; outline the full reach
-    homesLayer = L.geoJSON(turf.featureCollection(homes), {
-      style:{ stroke: false, fillColor: colour, fillOpacity: .32 }
+  if (homes || unknown){
+    // solid = dwellings permitted, faint = by-law says nothing, dashed = full reach
+    if (unknown) unknownLayer = L.geoJSON(unknown, {
+      style:{ color: getCSS('--ink-soft'), weight: 1, opacity: .5,
+              dashArray: '2 3', fillColor: getCSS('--ink-soft'), fillOpacity: .12 }
+    }).addTo(map);
+    if (homes) homesLayer = L.geoJSON(homes, {
+      style:{ stroke: false, fillColor: colour, fillOpacity: .34 }
     }).addTo(map);
     shapeLayer = L.geoJSON(shape, {
       style:{ color: colour, weight: 1.5, opacity: .85, fill: false, dashArray: '4 3' }
@@ -544,7 +509,7 @@ async function compute(){
 
   if (cache.has(key)){
     const c = cache.get(key);
-    paint(c.shape, c.stops, c.homes); noteEl.innerHTML = c.note; return;
+    paint(c.shape, c.stops, c.homes, c.unknown); noteEl.innerHTML = c.note; return;
   }
 
   noteEl.innerHTML = '<span class="busy"></span>Working out the shape…';
@@ -581,32 +546,32 @@ async function compute(){
           + `. This is the walking shape.`;
     }
 
-    let homes = null;
+    let homes = null, unknown = null;
     if (homesOnly){
       noteEl.innerHTML = '<span class="busy"></span>Checking what the zoning allows…';
-      try {
-        const feats = await residentialAreas(shape);
-        if (my !== token) return;
-        const cut = clipToShape(feats, shape);
-        if (cut.length){
-          homes = cut;
-          note += ` Shading covers land zoned for dwellings under Toronto By-law 569-2013; the dashed line is the full reach.`;
-        } else {
-          note += ` No residential zoning came back for this area, so the whole reach is shown.`;
-        }
-      } catch(err){
-        note += ` Zoning layer unavailable (${err.message}), so the reach is unclipped.`;
+      const z = await loadZoning();
+      if (my !== token) return;
+      if (z){
+        let simple = shape;
+        try { simple = turf.simplify(shape, { tolerance: 0.0002, highQuality: false }); } catch(e){}
+        homes = cutTo(z.homes, simple);
+        unknown = cutTo(z.unknown, simple);
+        note += homes || unknown
+          ? ` Solid fill is zoned for dwellings. Faint areas sit outside By-law 569-2013 — unknown rather than prohibited, and 215 Fort York Blvd is one of them. Zoning snapshot ${z.generated}.`
+          : ` No zoning falls inside this shape.`;
+      } else {
+        note += ` Zoning files didn't load (${zoneErr.message}), so the full reach is shown.`;
       }
     }
 
     if (my !== token) return;
-    cache.set(key, { shape, stops, note, homes });
-    paint(shape, stops, homes); noteEl.innerHTML = note;
+    cache.set(key, { shape, stops, note, homes, unknown });
+    paint(shape, stops, homes, unknown); noteEl.innerHTML = note;
 
   } catch (err){
     if (my !== token) return;
     const shape = clipLake(blob(origin.lat, origin.lon, minutes));
-    paint(shape, null, null);
+    paint(shape, null, null, null);
     noteEl.innerHTML = `The walking network didn't answer (${err.message}). This is a rough distance estimate instead — move the slider to try again.`;
   }
 }
