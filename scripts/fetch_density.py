@@ -59,29 +59,92 @@ def density_of(props):
     return float(pop) / float(area) if area else 0.0
 
 
+def probe():
+    """Confirm the layer is there and say what it calls things."""
+    try:
+        with urlopen(URL.replace("/query", "?f=json"), timeout=60) as r:
+            meta = json.loads(r.read().decode())
+        print("layer:", meta.get("name"), "| max records:", meta.get("maxRecordCount"))
+        print("fields:", ", ".join(f["name"] for f in meta.get("fields", []))[:300])
+    except Exception as exc:                           # noqa: BLE001
+        print("probe failed:", exc)
+
+
+# Hosted services vary in what they accept, so try progressively plainer queries.
+VARIANTS = [
+    {"f": "geojson", "maxAllowableOffset": "0.0002", "geometryPrecision": "5"},
+    {"f": "geojson"},
+    {"f": "json", "maxAllowableOffset": "0.0002"},
+    {"f": "json"},
+]
+
+
+def query(variant, offset):
+    p = {
+        "where": "1=1",
+        "geometry": json.dumps({"xmin": BBOX[0], "ymin": BBOX[1],
+                                "xmax": BBOX[2], "ymax": BBOX[3],
+                                "spatialReference": {"wkid": 4326}}),
+        "geometryType": "esriGeometryEnvelope",
+        "spatialRel": "esriSpatialRelIntersects",
+        "inSR": "4326", "outSR": "4326",
+        "outFields": "*",
+        "returnGeometry": "true",
+        "resultOffset": str(offset),
+        "resultRecordCount": str(PAGE),
+    }
+    p.update(variant)
+    return get(p)
+
+
+def rings_to_geojson(geom):
+    """Esri rings to a GeoJSON polygon, clockwise ring is the outer one."""
+    from shapely.geometry import Polygon, mapping
+    from shapely.ops import unary_union
+    outers, holes = [], []
+    for ring in geom.get("rings", []):
+        if len(ring) < 4:
+            continue
+        area = sum((ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1])
+                   for i in range(len(ring) - 1)) / 2.0
+        (holes if area > 0 else outers).append(ring)
+    polys = []
+    for outer in outers:
+        shell = Polygon(outer)
+        inner = [h for h in holes if shell.contains(Polygon(h).representative_point())]
+        polys.append(Polygon(outer, inner))
+    return mapping(unary_union(polys)) if polys else None
+
+
 def main():
+    probe()
+
+    variant = None
+    for v in VARIANTS:
+        first = query(v, 0)
+        if first.get("error"):
+            print(f"  {v} -> error: {str(first['error'])[:160]}")
+            continue
+        n = len(first.get("features", []))
+        print(f"  {v} -> {n} features")
+        if n:
+            variant = v
+            break
+    if variant is None:
+        raise SystemExit("No query variant returned features.")
+
     feats, offset = [], 0
     while True:
-        page = get({
-            "where": "1=1",
-            "geometry": ",".join(map(str, BBOX)),
-            "geometryType": "esriGeometryEnvelope",
-            "spatialRel": "esriSpatialRelIntersects",
-            "inSR": "4326", "outSR": "4326",
-            "outFields": "*",
-            "returnGeometry": "true",
-            "maxAllowableOffset": "0.0002",
-            "geometryPrecision": "5",
-            "resultOffset": str(offset),
-            "resultRecordCount": str(PAGE),
-            "f": "geojson",
-        })
+        page = query(variant, offset)
         got = page.get("features", [])
         for f in got:
             geom = f.get("geometry")
+            props = f.get("properties") or f.get("attributes") or {}
+            if geom and "rings" in geom:
+                geom = rings_to_geojson(geom)
             if not geom:
                 continue
-            d = density_of(f.get("properties") or {})
+            d = density_of(props)
             geom["coordinates"] = round_coords(geom["coordinates"])
             feats.append({"type": "Feature",
                           "properties": {"d": round(d)},
