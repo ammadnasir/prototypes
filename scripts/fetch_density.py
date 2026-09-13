@@ -3,169 +3,154 @@
 Snapshot 2021 census population density by dissemination area.
 
 Writes data/density-da.geojson: one polygon per DA with people per square km,
-plus the quantile breaks the map uses for its colour scale.
+plus the quantile breaks the map uses for its colour scale. A dissemination area
+holds 400-700 people, fine enough to separate a tower block from the street behind it.
 
-A dissemination area holds 400-700 people, so it's fine-grained enough to show
-the difference between a tower block and the street behind it.
-
-Source: Statistics Canada 2021 Census, Dissemination Area boundary file and
-table 98-10-0015 (population, dwellings, land area), served as a feature layer.
+Sources, both free and public:
+  boundaries  Statistics Canada 2021 Census Dissemination Area boundary file
+  counts      Statistics Canada table 98-10-0015 (population, land area, density)
 """
 
+import csv
+import io
 import json
 import os
 import time
-from urllib.parse import urlencode
+import zipfile
 from urllib.request import urlopen
 
-URL = ("https://services2.arcgis.com/11XBiaBYA9Ep0yNJ/ArcGIS/rest/services/"
-       "Census_2021_Dissemination_Areas/FeatureServer/0/query")
+BOUNDARY_CANDIDATES = [
+    "https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/files-fichiers/lda_000b21a_e.zip",
+    "https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/files-fichiers/lda_000a21a_e.zip",
+    "https://www12.statcan.gc.ca/census-recensement/2021/geo/sip-pis/boundary-limites/files-fichiers/lda_000b21f_e.zip",
+]
+COUNTS_URL = "https://www150.statcan.gc.ca/n1/tbl/csv/98100015-eng.zip"
 
-# Same window as the zoning snapshot.
-BBOX = (-79.58, 43.58, -79.26, 43.80)
-PAGE = 1000
+BBOX = (-79.58, 43.58, -79.26, 43.80)     # same window as the zoning snapshot
 OUT = "data/density-da.geojson"
+SIMPLIFY_DEG = 0.00008
 
 
-def get(params, tries=4):
-    url = URL + "?" + urlencode(params)
+def fetch(url, tries=3):
     for attempt in range(tries):
         try:
-            with urlopen(url, timeout=180) as r:
-                return json.loads(r.read().decode())
+            print(f"  downloading {url.rsplit('/', 1)[-1]}")
+            with urlopen(url, timeout=600) as r:
+                return r.read()
         except Exception as exc:                       # noqa: BLE001
-            if attempt == tries - 1:
-                raise
-            print(f"  retry {attempt + 1} after {exc}")
-            time.sleep(3 * (attempt + 1))
+            print(f"    attempt {attempt + 1} failed: {exc}")
+            time.sleep(4 * (attempt + 1))
+    return None
 
 
-def round_coords(node, places=5):
-    if isinstance(node, list):
-        if node and isinstance(node[0], (int, float)):
-            return [round(c, places) for c in node]
-        return [round_coords(n, places) for n in node]
-    return node
+def load_counts():
+    """DAUID -> people per square km, from the census table."""
+    raw = fetch(COUNTS_URL)
+    if not raw:
+        raise SystemExit("Could not download the census counts table.")
+    zf = zipfile.ZipFile(io.BytesIO(raw))
+    name = next(n for n in zf.namelist()
+                if n.lower().endswith(".csv") and "metadata" not in n.lower())
+    print(f"  counts file: {name}")
+    text = zf.read(name).decode("utf-8-sig", errors="replace")
+    reader = csv.reader(io.StringIO(text))
+    header = next(reader)
+    print(f"  columns: {header[:12]}")
 
+    def find(*words):
+        for i, h in enumerate(header):
+            low = h.lower()
+            if all(w in low for w in words):
+                return i
+        return None
 
-def density_of(props):
-    """Prefer the published density; fall back to population over land area."""
-    for key in ("DAPOPDEN", "DA_POP_DENSITY", "POP_DENSITY"):
-        v = props.get(key)
-        if isinstance(v, (int, float)) and v >= 0:
-            return float(v)
-    pop = props.get("DAPOP2021") or props.get("DAPOP") or 0
-    area = props.get("DAAREA") or 0
-    return float(pop) / float(area) if area else 0.0
+    i_guid = find("dguid")
+    i_den = find("density")
+    i_pop = find("population", "2021")
+    i_area = find("land area")
+    print(f"  using columns dguid={i_guid} density={i_den} pop={i_pop} area={i_area}")
+    if i_guid is None or (i_den is None and (i_pop is None or i_area is None)):
+        raise SystemExit(f"Unexpected column layout: {header}")
 
-
-def probe():
-    """Confirm the layer is there and say what it calls things."""
-    try:
-        with urlopen(URL.replace("/query", "?f=json"), timeout=60) as r:
-            meta = json.loads(r.read().decode())
-        print("layer:", meta.get("name"), "| max records:", meta.get("maxRecordCount"))
-        print("fields:", ", ".join(f["name"] for f in meta.get("fields", []))[:300])
-    except Exception as exc:                           # noqa: BLE001
-        print("probe failed:", exc)
-
-
-# Toronto is one census subdivision, so an attribute filter beats a spatial one.
-ENVELOPE = json.dumps({"xmin": BBOX[0], "ymin": BBOX[1], "xmax": BBOX[2], "ymax": BBOX[3],
-                       "spatialReference": {"wkid": 4326}})
-VARIANTS = [
-    {"where": "CSDUID='3520005'"},
-    {"where": "CSDNAME='Toronto'"},
-    {"where": "CDNAME='Toronto'"},
-    {"where": "1=1", "geometry": ENVELOPE, "geometryType": "esriGeometryEnvelope",
-     "spatialRel": "esriSpatialRelIntersects", "inSR": "4326"},
-]
-
-
-def query(variant, offset, count_only=False):
-    p = {
-        "where": "1=1",
-        "outSR": "4326",
-        "outFields": "*",
-        "returnGeometry": "false" if count_only else "true",
-        "f": "json" if count_only else "geojson",
-    }
-    if count_only:
-        p["returnCountOnly"] = "true"
-    else:
-        p["resultOffset"] = str(offset)
-        p["resultRecordCount"] = str(PAGE)
-        p["geometryPrecision"] = "5"
-    p.update(variant)
-    return get(p)
-
-
-def rings_to_geojson(geom):
-    """Esri rings to a GeoJSON polygon, clockwise ring is the outer one."""
-    from shapely.geometry import Polygon, mapping
-    from shapely.ops import unary_union
-    outers, holes = [], []
-    for ring in geom.get("rings", []):
-        if len(ring) < 4:
+    out, sample = {}, None
+    for row in reader:
+        if len(row) <= i_guid:
             continue
-        area = sum((ring[i][0] * ring[i + 1][1] - ring[i + 1][0] * ring[i][1])
-                   for i in range(len(ring) - 1)) / 2.0
-        (holes if area > 0 else outers).append(ring)
-    polys = []
-    for outer in outers:
-        shell = Polygon(outer)
-        inner = [h for h in holes if shell.contains(Polygon(h).representative_point())]
-        polys.append(Polygon(outer, inner))
-    return mapping(unary_union(polys)) if polys else None
+        guid = row[i_guid].strip()
+        if "S0512" not in guid:            # dissemination area records only
+            continue
+        dauid = guid[-8:]
+        try:
+            if i_den is not None and row[i_den].strip():
+                out[dauid] = float(row[i_den].replace(",", ""))
+            else:
+                pop = float(row[i_pop].replace(",", ""))
+                area = float(row[i_area].replace(",", ""))
+                out[dauid] = pop / area if area else 0.0
+        except (ValueError, IndexError):
+            continue
+        if sample is None:
+            sample = (dauid, out[dauid])
+    print(f"  {len(out)} dissemination areas with counts, sample {sample}")
+    return out
+
+
+def load_boundaries():
+    """DAUID -> polygon rings in lon/lat, clipped to our window."""
+    import shapefile                       # pyshp
+    from pyproj import Transformer
+    from shapely.geometry import shape as shp_shape, box
+    from shapely.ops import transform as shp_transform
+
+    raw = None
+    for url in BOUNDARY_CANDIDATES:
+        raw = fetch(url, tries=2)
+        if raw:
+            break
+    if not raw:
+        raise SystemExit("Could not download any dissemination area boundary file.")
+
+    zf = zipfile.ZipFile(io.BytesIO(raw))
+    stem = next(n[:-4] for n in zf.namelist() if n.lower().endswith(".shp"))
+    print(f"  shapefile: {stem}")
+    reader = shapefile.Reader(shp=io.BytesIO(zf.read(stem + ".shp")),
+                              dbf=io.BytesIO(zf.read(stem + ".dbf")))
+    fields = [f[0] for f in reader.fields[1:]]
+    i_da = fields.index("DAUID") if "DAUID" in fields else 0
+    print(f"  fields: {fields[:8]}")
+
+    to_wgs = Transformer.from_crs("EPSG:3347", "EPSG:4326", always_xy=True).transform
+    window = box(*BBOX)
+    out = {}
+    for rec in reader.iterShapeRecords():
+        geom = shp_shape(rec.shape.__geo_interface__)
+        geom = shp_transform(to_wgs, geom)
+        if not geom.intersects(window):
+            continue
+        geom = geom.simplify(SIMPLIFY_DEG, preserve_topology=True)
+        if not geom.is_empty:
+            out[str(rec.record[i_da])] = geom
+    print(f"  {len(out)} areas inside the window")
+    return out
 
 
 def main():
-    probe()
+    counts = load_counts()
+    shapes = load_boundaries()
 
-    variant = None
-    for v in VARIANTS:
-        label = v.get("where", "")[:40]
-        c = query(v, 0, count_only=True)
-        if c.get("error"):
-            print(f"  [{label}] count error: {str(c['error'])[:140]}")
+    from shapely.geometry import mapping
+    feats = []
+    for dauid, geom in shapes.items():
+        d = counts.get(dauid)
+        if d is None:
             continue
-        print(f"  [{label}] count = {c.get('count')}")
-        if not c.get("count"):
-            continue
-        first = query(v, 0)
-        n = len(first.get("features", []))
-        print(f"  [{label}] first page = {n} features")
-        if n:
-            variant = v
-            break
-    if variant is None:
-        raise SystemExit("No query variant returned features.")
-
-    feats, offset = [], 0
-    while True:
-        page = query(variant, offset)
-        got = page.get("features", [])
-        for f in got:
-            geom = f.get("geometry")
-            props = f.get("properties") or f.get("attributes") or {}
-            if geom and "rings" in geom:
-                geom = rings_to_geojson(geom)
-            if not geom:
-                continue
-            d = density_of(props)
-            geom["coordinates"] = round_coords(geom["coordinates"])
-            feats.append({"type": "Feature",
-                          "properties": {"d": round(d)},
-                          "geometry": geom})
-        offset += len(got)
-        print(f"  {offset} dissemination areas")
-        if not got or len(got) < PAGE:
-            break
-
+        feats.append({"type": "Feature",
+                      "properties": {"d": round(d)},
+                      "geometry": mapping(geom)})
+    print(f"  {len(feats)} areas matched to counts")
     if len(feats) < 100:
-        raise SystemExit(f"Only {len(feats)} areas returned - refusing to overwrite good data.")
+        raise SystemExit("Too few matched areas - refusing to overwrite good data.")
 
-    # quantile breaks, so the colour scale reflects Toronto rather than a guess
     vals = sorted(f["properties"]["d"] for f in feats if f["properties"]["d"] > 0)
     breaks = [vals[int(len(vals) * q)] for q in (0.2, 0.4, 0.6, 0.8)]
 
@@ -181,14 +166,10 @@ def main():
     mb = os.path.getsize(OUT) / 1e6
     print(f"wrote {OUT} ({mb:.2f} MB), {len(feats)} areas, breaks {breaks}")
 
-    meta = {}
-    if os.path.exists("data/meta.json"):
-        meta = json.load(open("data/meta.json"))
-    meta["density"] = {"areas": len(feats), "breaks": breaks,
-                       "megabytes": round(mb, 2),
+    meta = json.load(open("data/meta.json")) if os.path.exists("data/meta.json") else {}
+    meta["density"] = {"areas": len(feats), "breaks": breaks, "megabytes": round(mb, 2),
                        "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ")}
-    with open("data/meta.json", "w") as fh:
-        json.dump(meta, fh, indent=2)
+    json.dump(meta, open("data/meta.json", "w"), indent=2)
 
 
 if __name__ == "__main__":
