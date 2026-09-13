@@ -70,29 +70,32 @@ def probe():
         print("probe failed:", exc)
 
 
-# Hosted services vary in what they accept, so try progressively plainer queries.
+# Toronto is one census subdivision, so an attribute filter beats a spatial one.
+ENVELOPE = json.dumps({"xmin": BBOX[0], "ymin": BBOX[1], "xmax": BBOX[2], "ymax": BBOX[3],
+                       "spatialReference": {"wkid": 4326}})
 VARIANTS = [
-    {"f": "geojson", "maxAllowableOffset": "0.0002", "geometryPrecision": "5"},
-    {"f": "geojson"},
-    {"f": "json", "maxAllowableOffset": "0.0002"},
-    {"f": "json"},
+    {"where": "CSDUID='3520005'"},
+    {"where": "CSDNAME='Toronto'"},
+    {"where": "CDNAME='Toronto'"},
+    {"where": "1=1", "geometry": ENVELOPE, "geometryType": "esriGeometryEnvelope",
+     "spatialRel": "esriSpatialRelIntersects", "inSR": "4326"},
 ]
 
 
-def query(variant, offset):
+def query(variant, offset, count_only=False):
     p = {
         "where": "1=1",
-        "geometry": json.dumps({"xmin": BBOX[0], "ymin": BBOX[1],
-                                "xmax": BBOX[2], "ymax": BBOX[3],
-                                "spatialReference": {"wkid": 4326}}),
-        "geometryType": "esriGeometryEnvelope",
-        "spatialRel": "esriSpatialRelIntersects",
-        "inSR": "4326", "outSR": "4326",
+        "outSR": "4326",
         "outFields": "*",
-        "returnGeometry": "true",
-        "resultOffset": str(offset),
-        "resultRecordCount": str(PAGE),
+        "returnGeometry": "false" if count_only else "true",
+        "f": "json" if count_only else "geojson",
     }
+    if count_only:
+        p["returnCountOnly"] = "true"
+    else:
+        p["resultOffset"] = str(offset)
+        p["resultRecordCount"] = str(PAGE)
+        p["geometryPrecision"] = "5"
     p.update(variant)
     return get(p)
 
@@ -121,12 +124,17 @@ def main():
 
     variant = None
     for v in VARIANTS:
-        first = query(v, 0)
-        if first.get("error"):
-            print(f"  {v} -> error: {str(first['error'])[:160]}")
+        label = v.get("where", "")[:40]
+        c = query(v, 0, count_only=True)
+        if c.get("error"):
+            print(f"  [{label}] count error: {str(c['error'])[:140]}")
             continue
+        print(f"  [{label}] count = {c.get('count')}")
+        if not c.get("count"):
+            continue
+        first = query(v, 0)
         n = len(first.get("features", []))
-        print(f"  {v} -> {n} features")
+        print(f"  [{label}] first page = {n} features")
         if n:
             variant = v
             break
