@@ -16,7 +16,10 @@
     --line:rgba(255,255,255,.14);
     --walk:#1F6F6B;
     --ttc:#C8102E;
-    --unknown:#B07A2A;
+    --unknown:#8C8578;
+    --f-houses:#3D6FA8;
+    --f-apartments:#8A4F9E;
+    --f-mixed:#C4703A;
     --on-ink:#E9F0F3;
     --on-ink-dim:#9FB3BE;
     --panel-pad:20px;
@@ -32,6 +35,21 @@
   }
   #map{position:absolute;inset:0;background:var(--paper)}
   .leaflet-container{font-family:inherit}
+
+  .legend{
+    position:absolute;z-index:1000;left:12px;top:12px;
+    background:rgba(18,33,43,.93);color:var(--on-ink);
+    border-radius:10px;padding:9px 11px;
+    font:400 11.5px/1.5 "Archivo",sans-serif;
+    box-shadow:0 4px 16px rgba(10,22,30,.28);
+    max-width:58vw;
+  }
+  .legend .row{display:flex;align-items:center;gap:7px;white-space:nowrap}
+  .legend .sw{width:11px;height:11px;border-radius:3px;flex:none}
+  .legend .ln{width:14px;height:0;border-top:2px dashed;flex:none}
+  .legend .dot{width:9px;height:9px;border-radius:50%;flex:none;border:1.5px solid #fff}
+  .legend .hdr{color:var(--on-ink-dim);margin-top:6px}
+  .legend .hdr:first-child{margin-top:0}
 
   .panel{
     position:absolute;z-index:1000;
@@ -181,6 +199,7 @@
 <body>
 
 <div id="map"></div>
+<div class="legend" id="legend" aria-live="polite"></div>
 
 <div class="panel" id="panel">
   <button class="grab" id="grab" aria-expanded="true" aria-controls="body" aria-label="Collapse controls">
@@ -486,11 +505,16 @@ async function valhallaWalk(lat, lon, mins){
 const blob = (lat, lon, mins) =>
   turf.circle([lon, lat], mins / 60 * WALK_KMH * 0.74, { steps: 56, units:'kilometers' });
 
+const RAIL_STOPS = new Set(
+  LINES.filter(l => l.kind === 'subway').flatMap(l => l.stops));
+
 /* ---------- zoning (static snapshots built by GitHub Actions) ---------- */
 const ZONE_FILES = {
   forms:   '/data/zoning-forms.geojson',         // one feature per built form
   unknown: '/data/zoning-nodata.geojson'         // outside By-law 569-2013
 };
+const FORM_COLOUR = { houses:'--f-houses', apartments:'--f-apartments',
+                      mixed:'--f-mixed', unknown:'--unknown' };
 const FORM_LABEL = { houses:'houses', apartments:'apartments', mixed:'mixed use',
                      unknown:'land under former by-laws' };
 let zoneData = null, zoneErr = null;
@@ -537,28 +561,33 @@ function paint(shape, stops, homes, unknown){
 
   if (homes || unknown){
     // solid = dwellings permitted, faint = by-law says nothing, dashed = full reach
-    if (unknown) unknownLayer = L.geoJSON(unknown, {
-      style:{ color: getCSS('--unknown'), weight: 1, opacity: .7, dashArray: '3 3',
-              fillColor: getCSS('--unknown'), fillOpacity: .26 }
-    }).addTo(map);
-    if (homes) homesLayer = L.geoJSON(turf.featureCollection(homes), {
-      style:{ stroke: false, fillColor: colour, fillOpacity: .34 }
-    }).addTo(map);
+    paintLegend(homes, stops);
+    homesLayer = L.layerGroup((homes || []).map(p => {
+      const c = getCSS(FORM_COLOUR[p.form]);
+      return L.geoJSON(p.feature, p.form === 'unknown'
+        ? { style:{ color:c, weight:1, opacity:.55, dashArray:'3 3', fillColor:c, fillOpacity:.22 } }
+        : { style:{ stroke:false, fillColor:c, fillOpacity:.38 } });
+    })).addTo(map);
     shapeLayer = L.geoJSON(shape, {
       style:{ color: colour, weight: 1.5, opacity: .85, fill: false, dashArray: '4 3' }
     }).addTo(map);
   } else {
+    paintLegend(null, stops);
     shapeLayer = L.geoJSON(shape, {
       style:{ color: colour, weight: 1.5, opacity: .9, fillColor: colour, fillOpacity: .18 }
     }).addTo(map);
   }
 
   if (stops && stops.length){
-    stopLayer = L.layerGroup(stops.map(s =>
-      L.circleMarker([s.lat, s.lon], {
-        radius: 3.5, color:'#fff', weight: 1.5, fillColor: colour, fillOpacity: 1
-      }).bindTooltip(`${s.name} · ${Math.round(s.t)} min`, { className:'stop-tip', direction:'top' })
-    )).addTo(map);
+    stopLayer = L.layerGroup(stops.map(s => {
+      const rail = RAIL_STOPS.has(s.id);
+      return L.circleMarker([s.lat, s.lon], {
+        radius: rail ? 5 : 3,
+        color: '#fff', weight: rail ? 2 : 1,
+        fillColor: colour, fillOpacity: rail ? 1 : .65
+      }).bindTooltip(`${s.name} · ${Math.round(s.t)} min · ${rail ? 'subway' : 'streetcar'}`,
+                     { className:'stop-tip', direction:'top' });
+    })).addTo(map);
   }
 }
 const getCSS = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -618,17 +647,18 @@ async function compute(){
         try { simple = turf.simplify(shape, { tolerance: 0.0002, highQuality: false }); } catch(e){}
         const pieces = [];
         for (const name of forms){
-          const layer = z.byForm[name];
+          const layer = name === 'unknown' ? z.unknown : z.byForm[name];
           if (!layer) continue;
           const bit = cutTo(layer, simple);
-          if (bit) pieces.push(bit);
+          if (bit) pieces.push({ form: name, feature: bit });
         }
         homes = pieces.length ? pieces : null;
-        unknown = forms.has('unknown') ? cutTo(z.unknown, simple) : null;
-        const found = [...forms].filter(f => f === 'unknown' ? unknown : z.byForm[f] && pieces.length);
-        tally = found.length ? found.map(f => FORM_LABEL[f]).join(', ') : 'nothing found here';
+        unknown = null;
+        tally = pieces.length
+          ? pieces.map(p => FORM_LABEL[p.form]).join(', ')
+          : 'nothing found here';
         note += homes || unknown
-          ? ` Green fill is zoned for dwellings under By-law 569-2013. Amber is land the by-law doesn't cover, where former by-laws like 438-86 still apply — Fort York, Bathurst Quay and CityPlace are all amber, and they're full of homes. Showing: ${tally}. Snapshot ${z.generated}.`
+          ? ` Patches are coloured by what the zoning permits; grey is land By-law 569-2013 doesn't cover, where former by-laws like 438-86 still apply — Fort York and CityPlace sit in it and are full of homes. Showing: ${tally}. Snapshot ${z.generated}.`
           : ` No zoning falls inside this shape.`;
       } else {
         note += ` Zoning files didn't load (${zoneErr.message}), so the full reach is shown.`;
@@ -736,6 +766,23 @@ async function movePin(){
 }
 el('find').onclick = movePin;
 el('addr').addEventListener('keydown', e => { if (e.key === 'Enter') movePin(); });
+
+/* ---------- legend ---------- */
+function paintLegend(pieces, stops){
+  const c = mode === 'walk' ? getCSS('--walk') : getCSS('--ttc');
+  const rows = [`<div class="hdr">${minutes} min ${mode === 'walk' ? 'on foot' : 'by TTC'}</div>`,
+                `<div class="row"><span class="ln" style="border-color:${c}"></span>reach boundary</div>`];
+  if (stops && stops.length){
+    rows.push(`<div class="row"><span class="dot" style="background:${c}"></span>subway stop</div>`);
+    rows.push(`<div class="row"><span class="dot" style="background:${c};opacity:.65;width:7px;height:7px"></span>streetcar stop</div>`);
+  }
+  if (pieces && pieces.length){
+    rows.push('<div class="hdr">zoning</div>');
+    for (const p of pieces)
+      rows.push(`<div class="row"><span class="sw" style="background:${getCSS(FORM_COLOUR[p.form])}"></span>${FORM_LABEL[p.form]}</div>`);
+  }
+  el('legend').innerHTML = rows.join('');
+}
 
 /* ---------- drawer ---------- */
 function updatePeek(){
