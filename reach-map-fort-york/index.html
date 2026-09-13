@@ -101,6 +101,14 @@
     font:400 13px "Archivo",sans-serif;color:var(--on-ink-dim);
   }
   .switch input{accent-color:var(--ttc);width:16px;height:16px;margin:0;cursor:pointer}
+  .forms{display:none;gap:6px;margin-top:10px}
+  .forms.on{display:flex}
+  .forms button{
+    flex:1;border:1px solid var(--line);border-radius:7px;background:transparent;
+    color:var(--on-ink-dim);font:400 12.5px "Archivo",sans-serif;padding:7px 0;cursor:pointer;
+  }
+  .forms button[aria-pressed="true"]{background:rgba(255,255,255,.12);color:var(--on-ink);font-weight:500}
+  .forms button:focus-visible{outline:2px solid #7FD3CE;outline-offset:2px}
   .switch:has(input:checked){color:var(--on-ink)}
 
   .readout{display:flex;align-items:baseline;gap:8px;margin:18px 0 2px}
@@ -183,6 +191,12 @@
 
   <label class="switch"><input type="checkbox" id="homes" checked> Only where homes are allowed</label>
 
+  <div class="forms on" id="forms" role="group" aria-label="Built form">
+    <button data-form="houses" aria-pressed="true">Houses</button>
+    <button data-form="apartments" aria-pressed="true">Apartments</button>
+    <button data-form="mixed" aria-pressed="true">Mixed use</button>
+  </div>
+
   <div class="note" id="note"></div>
 </div>
 
@@ -201,6 +215,7 @@ let mode = 'walk';
 let clock = 8.5;            // hours on a 5:00-to-29:00 axis
 let direct = true;          // one vehicle only
 let homesOnly = true;       // clip the shape to residential zoning
+let forms = new Set(['houses','apartments','mixed']);
 let minutes = 20;
 
 /* ---------- map ---------- */
@@ -438,20 +453,29 @@ const blob = (lat, lon, mins) =>
 
 /* ---------- zoning (static snapshots built by GitHub Actions) ---------- */
 const ZONE_FILES = {
-  homes:   '/data/zoning-residential.geojson',   // dwellings permitted
+  forms:   '/data/zoning-forms.geojson',         // one feature per built form
   unknown: '/data/zoning-nodata.geojson'         // outside By-law 569-2013
 };
+const FORM_LABEL = { houses:'houses', apartments:'apartments', mixed:'mixed use' };
 let zoneData = null, zoneErr = null;
 
 async function loadZoning(){
   if (zoneData || zoneErr) return zoneData;
   try {
-    const [homes, unknown] = await Promise.all(
-      [ZONE_FILES.homes, ZONE_FILES.unknown].map(u =>
+    const [forms, unknown] = await Promise.all(
+      [ZONE_FILES.forms, ZONE_FILES.unknown].map(u =>
         fetch(u).then(r => { if (!r.ok) throw new Error('file ' + r.status); return r.json(); })));
-    zoneData = { homes, unknown, generated: (homes.properties || {}).generated || '' };
+    const byForm = {};
+    for (const f of (forms.features || [])) byForm[f.properties.form] = f;
+    zoneData = { byForm, unknown, generated: (forms.properties || {}).generated || '' };
   } catch(err){ zoneErr = err; }
   return zoneData;
+}
+
+function selectedHomes(byForm){
+  let out = null;
+  for (const name of forms) if (byForm[name]) out = union2(out, byForm[name]);
+  return out;
 }
 
 function cutTo(feature, shape){
@@ -504,7 +528,7 @@ const getCSS = v => getComputedStyle(document.documentElement).getPropertyValue(
 
 async function compute(){
   const my = ++token;
-  const key = `${mode}|${regimeAt(clock).key}|${direct?'d':'x'}|${homesOnly?'h':'a'}|${minutes}|${origin.lat.toFixed(4)},${origin.lon.toFixed(4)}`;
+  const key = `${mode}|${regimeAt(clock).key}|${direct?'d':'x'}|${homesOnly?'h':'a'}|${[...forms].sort().join('')}|${minutes}|${origin.lat.toFixed(4)},${origin.lon.toFixed(4)}`;
   el('swatch').style.background = mode === 'walk' ? getCSS('--walk') : getCSS('--ttc');
 
   if (cache.has(key)){
@@ -554,10 +578,11 @@ async function compute(){
       if (z){
         let simple = shape;
         try { simple = turf.simplify(shape, { tolerance: 0.0002, highQuality: false }); } catch(e){}
-        homes = cutTo(z.homes, simple);
+        const pick = selectedHomes(z.byForm);
+        homes = pick ? cutTo(pick, simple) : null;
         unknown = cutTo(z.unknown, simple);
         note += homes || unknown
-          ? ` Solid fill is zoned for dwellings. Faint areas sit outside By-law 569-2013 — unknown rather than prohibited, and 215 Fort York Blvd is one of them. Zoning snapshot ${z.generated}.`
+          ? ` Solid fill is zoned for ${[...forms].map(f => FORM_LABEL[f]).join(', ') || 'nothing selected'}. Faint areas sit outside By-law 569-2013 — unknown rather than prohibited, and 215 Fort York Blvd is one of them. Zoning snapshot ${z.generated}.`
           : ` No zoning falls inside this shape.`;
       } else {
         note += ` Zoning files didn't load (${zoneErr.message}), so the full reach is shown.`;
@@ -605,7 +630,20 @@ function setMode(m){
 el('m-walk').onclick = () => setMode('walk');
 el('m-ttc').onclick  = () => setMode('ttc');
 
-el('homes').addEventListener('change', e => { homesOnly = e.target.checked; compute(); });
+el('homes').addEventListener('change', e => {
+  homesOnly = e.target.checked;
+  el('forms').classList.toggle('on', homesOnly);
+  compute();
+});
+
+for (const b of document.querySelectorAll('#forms button')){
+  b.addEventListener('click', () => {
+    const f = b.dataset.form;
+    forms.has(f) ? forms.delete(f) : forms.add(f);
+    b.setAttribute('aria-pressed', forms.has(f));
+    compute();
+  });
+}
 
 el('direct').addEventListener('change', e => { direct = e.target.checked; compute(); });
 
