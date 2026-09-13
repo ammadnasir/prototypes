@@ -54,6 +54,23 @@
     }
   }
 
+  .grab{
+    display:block;width:100%;background:transparent;border:0;
+    padding:0 0 12px;cursor:pointer;touch-action:none;
+  }
+  .grab .bar{
+    display:block;width:40px;height:4px;border-radius:2px;
+    background:rgba(255,255,255,.28);margin:0 auto;
+  }
+  .grab .peek{
+    display:none;margin-top:10px;text-align:left;
+    font:500 14px "Archivo",sans-serif;color:var(--on-ink);
+  }
+  .panel.shut .body{display:none}
+  .panel.shut .grab{padding-bottom:2px}
+  .panel.shut .grab .peek{display:block}
+  @media (min-width:760px){ .panel.shut{width:auto;min-width:220px} }
+
   .place{
     display:flex;gap:8px;align-items:center;
     border-bottom:1px solid var(--line);
@@ -163,7 +180,13 @@
 
 <div id="map"></div>
 
-<div class="panel">
+<div class="panel" id="panel">
+  <button class="grab" id="grab" aria-expanded="true" aria-controls="body" aria-label="Collapse controls">
+    <span class="bar"></span>
+    <span class="peek" id="peek">Walking · 20 min</span>
+  </button>
+
+  <div class="body" id="body">
   <div class="place">
     <input id="addr" value="215 Fort York Blvd, Toronto" aria-label="Centre address" autocomplete="off">
     <button id="find">Move pin</button>
@@ -202,6 +225,7 @@
   </div>
 
   <div class="note" id="note"></div>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
@@ -615,7 +639,7 @@ async function compute(){
 
     if (my !== token) return;
     cache.set(key, { shape, stops, note, homes, unknown });
-    paint(shape, stops, homes, unknown); noteEl.innerHTML = note;
+    paint(shape, stops, homes, unknown); noteEl.innerHTML = note; updatePeek();
 
   } catch (err){
     if (my !== token) return;
@@ -643,6 +667,7 @@ function fmtTime(t){
 function paintClock(){
   el('tod-time').textContent = fmtTime(clock);
   el('tod-label').textContent = regimeAt(departureClock()).label;
+  updatePeek();
 }
 
 function setMode(m){
@@ -713,6 +738,31 @@ async function movePin(){
 }
 el('find').onclick = movePin;
 el('addr').addEventListener('keydown', e => { if (e.key === 'Enter') movePin(); });
+
+/* ---------- drawer ---------- */
+function updatePeek(){
+  const bits = [mode === 'walk' ? 'Walking' : 'TTC', `${minutes} min`];
+  if (mode === 'ttc') bits.push(arriving ? `by ${fmtTime(clock)}` : `from ${fmtTime(clock)}`);
+  el('peek').textContent = bits.join(' · ');
+}
+function setDrawer(open){
+  el('panel').classList.toggle('shut', !open);
+  el('grab').setAttribute('aria-expanded', open);
+  el('grab').setAttribute('aria-label', open ? 'Collapse controls' : 'Expand controls');
+  updatePeek();
+}
+el('grab').addEventListener('click', () =>
+  setDrawer(el('panel').classList.contains('shut')));
+
+// drag the handle down to shut it, up to open it
+let dragY = null;
+el('grab').addEventListener('pointerdown', e => { dragY = e.clientY; });
+el('grab').addEventListener('pointerup', e => {
+  if (dragY === null) return;
+  const moved = e.clientY - dragY;
+  dragY = null;
+  if (Math.abs(moved) > 30) setDrawer(moved < 0);
+});
 
 /* ---------- start ---------- */
 el('swatch').style.background = getCSS('--walk');
