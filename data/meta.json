@@ -1,0 +1,22 @@
+{
+  "generated": "2026-09-13T20:50:35Z",
+  "zone_field": "ZN_ZONE",
+  "parcels": 6582,
+  "megabytes": 1.02,
+  "bbox": [
+    -79.58,
+    43.58,
+    -79.26,
+    43.8
+  ],
+  "categories": [
+    "CR",
+    "CRE",
+    "R",
+    "RA",
+    "RD",
+    "RM",
+    "RS",
+    "RT"
+  ]
+}
