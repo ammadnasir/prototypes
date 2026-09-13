@@ -14,7 +14,7 @@ permissions:
 jobs:
   zoning:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -23,7 +23,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install shapely
+        run: pip install shapely pyshp pyproj
 
       - name: Fetch zoning
         run: python scripts/fetch_zoning.py
