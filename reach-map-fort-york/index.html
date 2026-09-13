@@ -16,6 +16,7 @@
     --line:rgba(255,255,255,.14);
     --walk:#1F6F6B;
     --ttc:#C8102E;
+    --unknown:#B07A2A;
     --on-ink:#E9F0F3;
     --on-ink-dim:#9FB3BE;
     --panel-pad:20px;
@@ -120,8 +121,9 @@
   .switch input{accent-color:var(--ttc);width:16px;height:16px;margin:0;cursor:pointer}
   .forms{display:none;gap:6px;margin-top:10px}
   .forms.on{display:flex}
+  .forms{flex-wrap:wrap}
   .forms button{
-    flex:1;border:1px solid var(--line);border-radius:7px;background:transparent;
+    flex:1 1 45%;border:1px solid var(--line);border-radius:7px;background:transparent;
     color:var(--on-ink-dim);font:400 12.5px "Archivo",sans-serif;padding:7px 0;cursor:pointer;
   }
   .forms button[aria-pressed="true"]{background:rgba(255,255,255,.12);color:var(--on-ink);font-weight:500}
@@ -222,6 +224,7 @@
     <button data-form="houses" aria-pressed="true">Houses</button>
     <button data-form="apartments" aria-pressed="true">Apartments</button>
     <button data-form="mixed" aria-pressed="true">Mixed use</button>
+    <button data-form="unknown" aria-pressed="true">Former by-laws</button>
   </div>
 
   <div class="note" id="note"></div>
@@ -243,7 +246,7 @@ let mode = 'walk';
 let clock = 8.5;            // hours on a 5:00-to-29:00 axis
 let direct = true;          // one vehicle only
 let homesOnly = true;       // clip the shape to residential zoning
-let forms = new Set(['houses','apartments','mixed']);
+let forms = new Set(['houses','apartments','mixed','unknown']);
 let arriving = true;        // the clock is an arrival time at Fort York
 let minutes = 20;
 
@@ -252,16 +255,9 @@ const map = L.map('map', { zoomControl: false, attributionControl: true })
   .setView([origin.lat, origin.lon], 13);
 L.control.zoom({ position: 'topright' }).addTo(map);
 
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; OpenStreetMap &copy; CARTO · routing by Valhalla/FOSSGIS',
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors · routing by Valhalla/FOSSGIS · zoning: City of Toronto',
   maxZoom: 19
-}).addTo(map);
-
-map.createPane('labels');
-map.getPane('labels').style.zIndex = 650;
-map.getPane('labels').style.pointerEvents = 'none';
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
-  pane: 'labels', maxZoom: 19
 }).addTo(map);
 
 const marker = L.marker([origin.lat, origin.lon], {
@@ -495,7 +491,8 @@ const ZONE_FILES = {
   forms:   '/data/zoning-forms.geojson',         // one feature per built form
   unknown: '/data/zoning-nodata.geojson'         // outside By-law 569-2013
 };
-const FORM_LABEL = { houses:'houses', apartments:'apartments', mixed:'mixed use' };
+const FORM_LABEL = { houses:'houses', apartments:'apartments', mixed:'mixed use',
+                     unknown:'land under former by-laws' };
 let zoneData = null, zoneErr = null;
 
 async function grab(path){
@@ -541,8 +538,8 @@ function paint(shape, stops, homes, unknown){
   if (homes || unknown){
     // solid = dwellings permitted, faint = by-law says nothing, dashed = full reach
     if (unknown) unknownLayer = L.geoJSON(unknown, {
-      style:{ color: getCSS('--ink-soft'), weight: 1, opacity: .5,
-              dashArray: '2 3', fillColor: getCSS('--ink-soft'), fillOpacity: .12 }
+      style:{ color: getCSS('--unknown'), weight: 1, opacity: .7, dashArray: '3 3',
+              fillColor: getCSS('--unknown'), fillOpacity: .26 }
     }).addTo(map);
     if (homes) homesLayer = L.geoJSON(turf.featureCollection(homes), {
       style:{ stroke: false, fillColor: colour, fillOpacity: .34 }
@@ -627,10 +624,11 @@ async function compute(){
           if (bit) pieces.push(bit);
         }
         homes = pieces.length ? pieces : null;
-        unknown = cutTo(z.unknown, simple);
-        tally = `${pieces.length} of ${forms.size} selected, gaps ${unknown ? 'shown' : 'none found'}`;
+        unknown = forms.has('unknown') ? cutTo(z.unknown, simple) : null;
+        const found = [...forms].filter(f => f === 'unknown' ? unknown : z.byForm[f] && pieces.length);
+        tally = found.length ? found.map(f => FORM_LABEL[f]).join(', ') : 'nothing found here';
         note += homes || unknown
-          ? ` Solid fill is zoned for ${[...forms].map(f => FORM_LABEL[f]).join(', ') || 'nothing selected'}. Faint areas sit outside By-law 569-2013 — unknown rather than prohibited, and 215 Fort York Blvd is one of them. Zoning snapshot ${z.generated} (${tally}).`
+          ? ` Green fill is zoned for dwellings under By-law 569-2013. Amber is land the by-law doesn't cover, where former by-laws like 438-86 still apply — Fort York, Bathurst Quay and CityPlace are all amber, and they're full of homes. Showing: ${tally}. Snapshot ${z.generated}.`
           : ` No zoning falls inside this shape.`;
       } else {
         note += ` Zoning files didn't load (${zoneErr.message}), so the full reach is shown.`;
