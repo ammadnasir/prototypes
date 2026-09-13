@@ -282,6 +282,8 @@ let homesOnly = true;       // clip the shape to residential zoning
 let forms = new Set(['houses','apartments','mixed','unknown']);
 let view = 'zoning';
 const DENSITY_COLOURS = ['#DCE6EE', '#A9C2D8', '#6E93B8', '#3E6890', '#1F4166'];
+// the by-law gap, shaded by how much housing the census actually counts there
+const GAP_COLOURS = ['#EDE6DA', '#D9C9AE', '#C2A87E', '#A8854E', '#8A6526'];
 let arriving = true;        // the clock is an arrival time at Fort York
 let minutes = 20;
 
@@ -622,7 +624,7 @@ function paint(shape, stops, homes, unknown, density){
     }).addTo(map);
   } else if (homes || unknown){
     // solid = dwellings permitted, faint = by-law says nothing, dashed = full reach
-    paintLegend(homes, stops, null);
+    paintLegend(homes, stops, null, unknown);
     homesLayer = L.layerGroup((homes || []).map(p => {
       const c = getCSS(FORM_COLOUR[p.form]);
       return L.geoJSON(p.feature, p.form === 'unknown'
@@ -731,18 +733,43 @@ async function compute(){
         try { simple = turf.simplify(shape, { tolerance: 0.0002, highQuality: false }); } catch(e){}
         const pieces = [];
         for (const name of forms){
-          const layer = name === 'unknown' ? z.unknown : z.byForm[name];
+          if (name === 'unknown') continue;
+          const layer = z.byForm[name];
           if (!layer) continue;
           const bit = cutTo(layer, simple);
           if (bit) pieces.push({ form: name, feature: bit });
         }
         homes = pieces.length ? pieces : null;
+
         unknown = null;
-        tally = pieces.length
-          ? pieces.map(p => FORM_LABEL[p.form]).join(', ')
-          : 'nothing found here';
+        if (forms.has('unknown')){
+          const gap = cutTo(z.unknown, simple);
+          if (gap){
+            const dd = await loadDensity();
+            if (my !== token) return;
+            const breaks = dd ? ((dd.properties || {}).dwelling_breaks || []) : [];
+            const areas = [];
+            if (dd && breaks.length){
+              for (const f of dd.features){
+                if (!f.properties.w) continue;
+                try {
+                  if (turf.booleanPointInPolygon(turf.pointOnFeature(f), gap))
+                    areas.push({ f, band: densityBand(f.properties.w, breaks) });
+                } catch(e){}
+              }
+            }
+            unknown = areas.length ? { kind:'dwellings', areas, breaks, outline: gap }
+                                   : { kind:'flat', feature: gap };
+          }
+        }
+
+        const names = pieces.map(p => FORM_LABEL[p.form]);
+        if (unknown) names.push(unknown.kind === 'dwellings'
+          ? 'former by-law land, shaded by homes counted'
+          : 'former by-law land');
+        tally = names.length ? names.join(', ') : 'nothing found here';
         note += homes || unknown
-          ? ` Patches are coloured by what the zoning permits; grey is land By-law 569-2013 doesn't cover, where former by-laws like 438-86 still apply — Fort York and CityPlace sit in it and are full of homes. Showing: ${tally}. Snapshot ${z.generated}.`
+          ? ` Patches are coloured by what the zoning permits. Where the by-law says nothing — Fort York, CityPlace, the waterfront — the map falls back to the census and shades by dwellings actually counted, so housing still shows. Showing: ${tally}. Snapshot ${z.generated}.`
           : ` No zoning falls inside this shape.`;
       } else {
         note += ` Zoning files didn't load (${zoneErr.message}), so the full reach is shown.`;
@@ -863,7 +890,7 @@ el('find').onclick = movePin;
 el('addr').addEventListener('keydown', e => { if (e.key === 'Enter') movePin(); });
 
 /* ---------- legend ---------- */
-function paintLegend(pieces, stops, density){
+function paintLegend(pieces, stops, density, gap){
   const c = mode === 'walk' ? getCSS('--walk') : getCSS('--ttc');
   const rows = [`<div class="hdr">${minutes} min ${mode === 'walk' ? 'on foot' : 'by TTC'}</div>`,
                 `<div class="row"><span class="ln" style="border-color:${c}"></span>reach boundary</div>`];
@@ -879,6 +906,14 @@ function paintLegend(pieces, stops, density){
                     `over ${b[3].toLocaleString()}`];
     labels.forEach((t, i) =>
       rows.push(`<div class="row"><span class="sw" style="background:${DENSITY_COLOURS[i]}"></span>${t}</div>`));
+  }
+  if (gap && gap.kind === 'dwellings' && gap.breaks.length){
+    rows.push('<div class="hdr">no zoning on file, homes per km²</div>');
+    const b = gap.breaks;
+    [`under ${b[0].toLocaleString()}`, `${b[0].toLocaleString()}–${b[1].toLocaleString()}`,
+     `${b[1].toLocaleString()}–${b[2].toLocaleString()}`, `${b[2].toLocaleString()}–${b[3].toLocaleString()}`,
+     `over ${b[3].toLocaleString()}`].forEach((t, i) =>
+      rows.push(`<div class="row"><span class="sw" style="background:${GAP_COLOURS[i]}"></span>${t}</div>`));
   }
   if (pieces && pieces.length){
     rows.push('<div class="hdr">zoning</div>');
