@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-13T21:22:42Z",
+  "generated": "2026-09-13T21:25:49Z",
   "zone_field": "ZN_ZONE",
   "parcels_residential": 6582,
   "parcels_by_form": {
@@ -29,5 +29,16 @@
     "RM",
     "RS",
     "RT"
-  ]
+  ],
+  "density": {
+    "areas": 3225,
+    "breaks": [
+      3268,
+      5078,
+      7793,
+      11777
+    ],
+    "megabytes": 1.83,
+    "generated": "2026-09-13T21:27:41Z"
+  }
 }

@@ -1,7 +1,11 @@
-layer: Census 2021 Dissemination Areas | max records: 2000
-fields: OBJECTID, DAUID, DAPOP2021, DATDWELL20, DAURDWELL2, DAAREA, DAPOPDEN, DAIR2021, DARPLAT, DARPLONG, PRUID, PRNAME, CDUID, CDNAME, CDTYPE, ERUID, ERNAME, CCSUID, CCSNAME, CSDUID, CSDNAME, CSDTYPE, CMAUID, CMANAME, CMATYPE, CMAPUID, CTUID, CTNAME, ADAUID, SACCODE, SACTYPE, Shape__Area, Shape__Length
-  [CSDUID='3520005'] count = 0
-  [CSDNAME='Toronto'] count = 0
-  [CDNAME='Toronto'] count = 0
-  [1=1] count = 0
-No query variant returned features.
+  downloading 98100015-eng.zip
+  counts file: 98100015.csv
+  columns: ['REF_DATE', 'GEO', 'DGUID', 'Coordinate', 'Population and dwelling counts (5): Population, 2021 [1]', 'Symbols', 'Population and dwelling counts (5): Total private dwellings, 2021 [2]', 'Symbols', 'Population and dwelling counts (5): Private dwellings occupied by usual residents, 2021 [3]', 'Symbols', 'Population and dwelling counts (5): Land area in square kilometres, 2021 [4]', 'Symbols']
+  using columns dguid=2 density=12 pop=4 area=10
+  57758 dissemination areas with counts, sample ('10010725', 4.0)
+  downloading lda_000b21a_e.zip
+  shapefile: lda_000b21a_e
+  fields: ['DAUID', 'DGUID', 'LANDAREA', 'PRUID']
+  3225 areas inside the window
+  3225 areas matched to counts
+wrote data/density-da.geojson (1.83 MB), 3225 areas, breaks [3268, 5078, 7793, 11777]
