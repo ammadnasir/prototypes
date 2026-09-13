@@ -1,10 +1,16 @@
 {
-  "generated": "2026-09-13T20:56:14Z",
+  "generated": "2026-09-13T21:02:40Z",
   "zone_field": "ZN_ZONE",
   "parcels_residential": 6582,
+  "parcels_by_form": {
+    "houses": 3007,
+    "apartments": 1401,
+    "mixed": 2174
+  },
   "parcels_other": 2025,
   "ward_polygons": 23,
   "megabytes": {
+    "forms": 1.11,
     "residential": 1.02,
     "nodata": 0.49
   },
