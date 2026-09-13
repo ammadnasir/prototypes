@@ -228,6 +228,11 @@
     <label class="switch"><input type="checkbox" id="direct" checked> One vehicle only, no transfers</label>
   </div>
 
+  <div class="forms on" id="view" role="group" aria-label="What to show">
+    <button data-view="zoning" aria-pressed="true">Zoning</button>
+    <button data-view="density" aria-pressed="false">People per km²</button>
+  </div>
+
   <div class="readout">
     <span class="num" id="num">20</span>
     <span class="unit">minutes from the pin</span>
@@ -266,6 +271,8 @@ let clock = 8.5;            // hours on a 5:00-to-29:00 axis
 let direct = true;          // one vehicle only
 let homesOnly = true;       // clip the shape to residential zoning
 let forms = new Set(['houses','apartments','mixed','unknown']);
+let view = 'zoning';
+const DENSITY_COLOURS = ['#DCE6EE', '#A9C2D8', '#6E93B8', '#3E6890', '#1F4166'];
 let arriving = true;        // the clock is an arrival time at Fort York
 let minutes = 20;
 
@@ -291,7 +298,7 @@ marker.on('dragend', () => {
   compute();
 });
 
-let shapeLayer = null, stopLayer = null, homesLayer = null, unknownLayer = null;
+let shapeLayer = null, stopLayer = null, homesLayer = null, unknownLayer = null, densityLayer = null;
 
 /* ---------- TTC network (subway + the streetcar lines that matter here) ---------- */
 const S = {
@@ -541,6 +548,19 @@ async function loadZoning(){
   return zoneData;
 }
 
+let densityData = null, densityErr = null;
+async function loadDensity(){
+  if (densityData || densityErr) return densityData;
+  try { densityData = await grab('/data/density-da.geojson'); }
+  catch(err){ densityErr = err; }
+  return densityData;
+}
+function densityBand(d, breaks){
+  let i = 0;
+  while (i < breaks.length && d > breaks[i]) i++;
+  return i;
+}
+
 function cutTo(feature, shape){
   const i = pair(turf.intersect, feature, shape);
   return i && turf.area(i) > 1500 ? i : null;
@@ -552,16 +572,27 @@ const noteEl = el('note');
 const cache = new Map();
 let token = 0, timer = null;
 
-function paint(shape, stops, homes, unknown){
+function paint(shape, stops, homes, unknown, density){
   if (shapeLayer) map.removeLayer(shapeLayer);
   if (stopLayer) map.removeLayer(stopLayer);
   if (homesLayer) map.removeLayer(homesLayer);
   if (unknownLayer) map.removeLayer(unknownLayer);
+  if (densityLayer) map.removeLayer(densityLayer);
   const colour = mode === 'walk' ? getCSS('--walk') : getCSS('--ttc');
 
-  if (homes || unknown){
+  if (density && density.areas.length){
+    paintLegend(null, stops, density);
+    densityLayer = L.layerGroup(density.areas.map(x =>
+      L.geoJSON(x.f, { style:{ stroke:false, fillColor: DENSITY_COLOURS[x.band], fillOpacity:.68 } })
+        .bindTooltip(`${x.f.properties.d.toLocaleString()} people per km²`,
+                     { className:'stop-tip', sticky:true })
+    )).addTo(map);
+    shapeLayer = L.geoJSON(shape, {
+      style:{ color: colour, weight: 1.5, opacity: .9, fill: false, dashArray: '4 3' }
+    }).addTo(map);
+  } else if (homes || unknown){
     // solid = dwellings permitted, faint = by-law says nothing, dashed = full reach
-    paintLegend(homes, stops);
+    paintLegend(homes, stops, null);
     homesLayer = L.layerGroup((homes || []).map(p => {
       const c = getCSS(FORM_COLOUR[p.form]);
       return L.geoJSON(p.feature, p.form === 'unknown'
@@ -572,7 +603,7 @@ function paint(shape, stops, homes, unknown){
       style:{ color: colour, weight: 1.5, opacity: .85, fill: false, dashArray: '4 3' }
     }).addTo(map);
   } else {
-    paintLegend(null, stops);
+    paintLegend(null, stops, null);
     shapeLayer = L.geoJSON(shape, {
       style:{ color: colour, weight: 1.5, opacity: .9, fillColor: colour, fillOpacity: .18 }
     }).addTo(map);
@@ -594,12 +625,12 @@ const getCSS = v => getComputedStyle(document.documentElement).getPropertyValue(
 
 async function compute(){
   const my = ++token;
-  const key = `${mode}|${regimeAt(departureClock()).key}|${arriving?'a':'l'}|${direct?'d':'x'}|${homesOnly?'h':'a'}|${[...forms].sort().join('')}|${minutes}|${origin.lat.toFixed(4)},${origin.lon.toFixed(4)}`;
+  const key = `${view}|${mode}|${regimeAt(departureClock()).key}|${arriving?'a':'l'}|${direct?'d':'x'}|${homesOnly?'h':'a'}|${[...forms].sort().join('')}|${minutes}|${origin.lat.toFixed(4)},${origin.lon.toFixed(4)}`;
   el('swatch').style.background = mode === 'walk' ? getCSS('--walk') : getCSS('--ttc');
 
   if (cache.has(key)){
     const c = cache.get(key);
-    paint(c.shape, c.stops, c.homes, c.unknown); noteEl.innerHTML = c.note; return;
+    paint(c.shape, c.stops, c.homes, c.unknown, c.density); noteEl.innerHTML = c.note; return;
   }
 
   noteEl.innerHTML = '<span class="busy"></span>Working out the shape…';
@@ -636,8 +667,31 @@ async function compute(){
           + `. This is the walking shape.`;
     }
 
-    let homes = null, unknown = null;
-    if (homesOnly){
+    let homes = null, unknown = null, density = null;
+
+    if (view === 'density'){
+      noteEl.innerHTML = '<span class="busy"></span>Reading census density…';
+      const dd = await loadDensity();
+      if (my !== token) return;
+      if (dd){
+        let simple = shape;
+        try { simple = turf.simplify(shape, { tolerance: 0.0002, highQuality: false }); } catch(e){}
+        const breaks = (dd.properties || {}).breaks || [];
+        const inside = [];
+        for (const f of dd.features){
+          try {
+            if (turf.booleanPointInPolygon(turf.pointOnFeature(f), simple))
+              inside.push({ f, band: densityBand(f.properties.d, breaks) });
+          } catch(e){}
+        }
+        density = { areas: inside, breaks };
+        const ds = inside.map(x => x.f.properties.d).sort((a, b) => a - b);
+        const mid = ds.length ? ds[Math.floor(ds.length / 2)] : 0;
+        note += ` ${inside.length} census areas inside the shape, median ${mid.toLocaleString()} people per km². 2021 census, dissemination areas.`;
+      } else {
+        note += ` Density file didn't load (${densityErr.message}).`;
+      }
+    } else if (homesOnly){
       noteEl.innerHTML = '<span class="busy"></span>Checking what the zoning allows…';
       const z = await loadZoning();
       if (my !== token) return;
@@ -666,13 +720,13 @@ async function compute(){
     }
 
     if (my !== token) return;
-    cache.set(key, { shape, stops, note, homes, unknown });
-    paint(shape, stops, homes, unknown); noteEl.innerHTML = note; updatePeek();
+    cache.set(key, { shape, stops, note, homes, unknown, density });
+    paint(shape, stops, homes, unknown, density); noteEl.innerHTML = note; updatePeek();
 
   } catch (err){
     if (my !== token) return;
     const shape = clipLake(blob(origin.lat, origin.lon, minutes));
-    paint(shape, null, null, null);
+    paint(shape, null, null, null, null);
     noteEl.innerHTML = `The walking network didn't answer (${err.message}). This is a rough distance estimate instead — move the slider to try again.`;
   }
 }
@@ -713,6 +767,17 @@ el('homes').addEventListener('change', e => {
   el('forms').classList.toggle('on', homesOnly);
   compute();
 });
+
+for (const b of document.querySelectorAll('#view button')){
+  b.addEventListener('click', () => {
+    view = b.dataset.view;
+    for (const o of document.querySelectorAll('#view button'))
+      o.setAttribute('aria-pressed', o.dataset.view === view);
+    el('homes').parentElement.style.display = view === 'zoning' ? '' : 'none';
+    el('forms').classList.toggle('on', view === 'zoning' && homesOnly);
+    compute();
+  });
+}
 
 for (const b of document.querySelectorAll('#dir button')){
   b.addEventListener('click', () => {
@@ -768,13 +833,22 @@ el('find').onclick = movePin;
 el('addr').addEventListener('keydown', e => { if (e.key === 'Enter') movePin(); });
 
 /* ---------- legend ---------- */
-function paintLegend(pieces, stops){
+function paintLegend(pieces, stops, density){
   const c = mode === 'walk' ? getCSS('--walk') : getCSS('--ttc');
   const rows = [`<div class="hdr">${minutes} min ${mode === 'walk' ? 'on foot' : 'by TTC'}</div>`,
                 `<div class="row"><span class="ln" style="border-color:${c}"></span>reach boundary</div>`];
   if (stops && stops.length){
     rows.push(`<div class="row"><span class="dot" style="background:${c}"></span>subway stop</div>`);
     rows.push(`<div class="row"><span class="dot" style="background:${c};opacity:.65;width:7px;height:7px"></span>streetcar stop</div>`);
+  }
+  if (density && density.breaks.length){
+    rows.push('<div class="hdr">people per km²</div>');
+    const b = density.breaks;
+    const labels = [`under ${b[0].toLocaleString()}`, `${b[0].toLocaleString()}–${b[1].toLocaleString()}`,
+                    `${b[1].toLocaleString()}–${b[2].toLocaleString()}`, `${b[2].toLocaleString()}–${b[3].toLocaleString()}`,
+                    `over ${b[3].toLocaleString()}`];
+    labels.forEach((t, i) =>
+      rows.push(`<div class="row"><span class="sw" style="background:${DENSITY_COLOURS[i]}"></span>${t}</div>`));
   }
   if (pieces && pieces.length){
     rows.push('<div class="hdr">zoning</div>');
