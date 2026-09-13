@@ -28,7 +28,14 @@ ZONING, WARDS = f"{BASE}/3/query", f"{BASE}/0/query"
 # Everything reachable from 215 Fort York Blvd in 60 minutes, generously bounded.
 BBOX = (-79.58, 43.58, -79.26, 43.80)
 
-HOME = {"R", "RD", "RS", "RT", "RM", "RA", "CR", "CRE"}
+# Split by built form, because "where can I buy a house" and "where can I buy a
+# condo" are different questions with very different answers in Toronto.
+FORMS = {
+    "houses":     {"R", "RD", "RS", "RT"},   # detached, semi, town
+    "apartments": {"RM", "RA"},              # multiplex and apartment
+    "mixed":      {"CR", "CRE"},             # dwellings above commercial
+}
+HOME = set().union(*FORMS.values())
 OTHER = {"CL", "C", "EL", "EH", "EO", "E", "IH", "IPU", "IE", "I",
          "ON", "OR", "OG", "OM", "OC", "O", "UT"}
 ALL = HOME | OTHER
@@ -137,7 +144,11 @@ def main():
     def in_list(codes):
         return f"{field} IN (" + ",".join(f"'{z}'" for z in sorted(codes)) + ")"
 
-    homes_raw = fetch_polygons(ZONING, in_list(HOME), "residential", field)
+    by_form, homes_raw = {}, []
+    for name, codes in FORMS.items():
+        raw = fetch_polygons(ZONING, in_list(codes), name, field)
+        by_form[name] = raw
+        homes_raw += raw
     if not homes_raw:
         raise SystemExit("No residential zoning returned - refusing to overwrite good data.")
     other_raw = fetch_polygons(ZONING, in_list(OTHER), "other zones", field)
@@ -158,6 +169,25 @@ def main():
 
     os.makedirs("data", exist_ok=True)
     stamp = time.strftime("%Y-%m-%d")
+    # one file, one feature per built form
+    forms_fc = {"type": "FeatureCollection", "properties": {
+        "source": "City of Toronto, Zoning By-law 569-2013", "generated": stamp},
+        "features": []}
+    for name, raw in by_form.items():
+        if not raw:
+            continue
+        geom = dissolve(raw).simplify(SIMPLIFY_DEG, preserve_topology=True)
+        forms_fc["features"].append({
+            "type": "Feature",
+            "properties": {"form": name, "categories": sorted(FORMS[name]),
+                           "parcels": len(raw)},
+            "geometry": mapping(geom)})
+    with open("data/zoning-forms.geojson", "w") as fh:
+        json.dump(forms_fc, fh, separators=(",", ":"))
+    mb_f = round(os.path.getsize("data/zoning-forms.geojson") / 1e6, 2)
+    print(f"wrote data/zoning-forms.geojson ({mb_f} MB)")
+
+    # kept so an older deploy of the page keeps working
     mb_h = write("data/zoning-residential.geojson", homes, {
         "source": "City of Toronto, Zoning By-law 569-2013",
         "meaning": "Dwellings are permitted here.",
@@ -173,15 +203,16 @@ def main():
             "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "zone_field": field,
             "parcels_residential": len(homes_raw),
+            "parcels_by_form": {k: len(v) for k, v in by_form.items()},
             "parcels_other": len(other_raw),
             "ward_polygons": len(wards_raw),
-            "megabytes": {"residential": mb_h, "nodata": mb_n},
+            "megabytes": {"forms": mb_f, "residential": mb_h, "nodata": mb_n},
             "bbox": list(BBOX),
             "categories_residential": sorted(HOME),
         }, fh, indent=2)
     print("wrote data/meta.json")
 
-    if mb_h + mb_n > 40:
+    if mb_f + mb_h + mb_n > 40:
         print("warning: large for static assets, consider raising SIMPLIFY_DEG", file=sys.stderr)
 
 
