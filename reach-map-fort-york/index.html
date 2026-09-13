@@ -177,6 +177,10 @@
   <div class="timeofday" id="tod">
     <div class="tod-head"><span id="tod-time">8:30 am</span><span id="tod-label">morning rush</span></div>
     <input type="range" id="clock" min="0" max="47" step="1" value="7" aria-label="Time of day">
+    <div class="forms on" id="dir" role="group" aria-label="Direction">
+      <button data-dir="arrive" aria-pressed="true">Arrive here by</button>
+      <button data-dir="leave" aria-pressed="false">Leave here at</button>
+    </div>
     <label class="switch"><input type="checkbox" id="direct" checked> One vehicle only, no transfers</label>
   </div>
 
@@ -216,6 +220,7 @@ let clock = 8.5;            // hours on a 5:00-to-29:00 axis
 let direct = true;          // one vehicle only
 let homesOnly = true;       // clip the shape to residential zoning
 let forms = new Set(['houses','apartments','mixed']);
+let arriving = true;        // the clock is an arrival time at Fort York
 let minutes = 20;
 
 /* ---------- map ---------- */
@@ -333,6 +338,14 @@ const REGIMES = [
     off:['Line 1','509','511'], as:{ 'Line 2':'streetcar' },
     speed:{ subway:31.5, streetcar:19 }, dwell:{ subway:.4, streetcar:.3 }, wait:{ subway:99, streetcar:15 } }
 ];
+// If you're arriving at a set time, the service you actually ride is the service
+// running when you set out — which for a 45-minute trip is 45 minutes earlier.
+function departureClock(){
+  if (!arriving) return clock;
+  let t = clock - minutes / 60;
+  if (t < 5) t += 24;
+  return t;
+}
 const regimeAt = t => REGIMES.find(r => t >= r.from && t < r.to) || REGIMES[REGIMES.length - 1];
 const DETOUR = { subway: 1.0, streetcar: 1.12 };
 const WALK_KMH = 4.8;
@@ -528,7 +541,7 @@ const getCSS = v => getComputedStyle(document.documentElement).getPropertyValue(
 
 async function compute(){
   const my = ++token;
-  const key = `${mode}|${regimeAt(clock).key}|${direct?'d':'x'}|${homesOnly?'h':'a'}|${[...forms].sort().join('')}|${minutes}|${origin.lat.toFixed(4)},${origin.lon.toFixed(4)}`;
+  const key = `${mode}|${regimeAt(departureClock()).key}|${arriving?'a':'l'}|${direct?'d':'x'}|${homesOnly?'h':'a'}|${[...forms].sort().join('')}|${minutes}|${origin.lat.toFixed(4)},${origin.lon.toFixed(4)}`;
   el('swatch').style.background = mode === 'walk' ? getCSS('--walk') : getCSS('--ttc');
 
   if (cache.has(key)){
@@ -546,7 +559,7 @@ async function compute(){
       if (my !== token) return;
       note = `Every street corner you can reach on foot in <b>${minutes} minutes</b>, following the real walking network.`;
     } else {
-      const R = regimeAt(clock);
+      const R = regimeAt(departureClock());
       const arrivals = ttcArrivals(origin, minutes, R.key);
       try { shape = await valhallaWalk(origin.lat, origin.lon, minutes); }
       catch(e){ shape = blob(origin.lat, origin.lon, minutes); }
@@ -562,10 +575,10 @@ async function compute(){
       shape = clipLake(shape);
       const shut = R.off ? R.off.join(', ') : '';
       note = stops.length
-        ? `<b>${stops.length} stops</b> within ${minutes} minutes at ${fmtTime(clock)}, plus the walk at each end${direct ? ' on a single vehicle' : ''}.`
+        ? `<b>${stops.length} stops</b> within ${minutes} minutes, ${arriving ? `setting out around ${fmtTime(departureClock())} to arrive by ${fmtTime(clock)}` : `leaving at ${fmtTime(clock)}`}, plus the walk at each end${direct ? ' on a single vehicle' : ''}.`
           + (shut ? ` Not running at this hour: ${shut}.` : '')
           + ` Built from TTC's published service periods and typical headways, not live vehicle positions.`
-        : `Nothing is reachable inside <b>${minutes} minutes</b> at ${fmtTime(clock)}`
+        : `Nothing is reachable inside <b>${minutes} minutes</b> ${arriving ? `arriving by ${fmtTime(clock)}` : `leaving at ${fmtTime(clock)}`}`
           + (shut ? ` — ${shut} not running` : '')
           + `. This is the walking shape.`;
     }
@@ -605,6 +618,7 @@ async function compute(){
 el('mins').addEventListener('input', e => {
   minutes = +e.target.value;
   el('num').textContent = minutes;
+  paintClock();
   clearTimeout(timer);
   timer = setTimeout(compute, 420);
 });
@@ -617,7 +631,7 @@ function fmtTime(t){
 }
 function paintClock(){
   el('tod-time').textContent = fmtTime(clock);
-  el('tod-label').textContent = regimeAt(clock).label;
+  el('tod-label').textContent = regimeAt(departureClock()).label;
 }
 
 function setMode(m){
@@ -635,6 +649,16 @@ el('homes').addEventListener('change', e => {
   el('forms').classList.toggle('on', homesOnly);
   compute();
 });
+
+for (const b of document.querySelectorAll('#dir button')){
+  b.addEventListener('click', () => {
+    arriving = b.dataset.dir === 'arrive';
+    for (const o of document.querySelectorAll('#dir button'))
+      o.setAttribute('aria-pressed', (o.dataset.dir === 'arrive') === arriving);
+    paintClock();
+    compute();
+  });
+}
 
 for (const b of document.querySelectorAll('#forms button')){
   b.addEventListener('click', () => {
