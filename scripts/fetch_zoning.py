@@ -145,6 +145,17 @@ def main():
         json.dump(out, fh, separators=(",", ":"))
     size = os.path.getsize(OUT) / 1e6
     print(f"wrote {OUT} ({size:.1f} MB)")
+
+    # the run log isn't readable everywhere, so leave a summary in the repo
+    with open("data/meta.json", "w") as fh:
+        json.dump({
+            "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "zone_field": field,
+            "parcels": len(geoms),
+            "megabytes": round(size, 2),
+            "bbox": list(BBOX),
+            "categories": sorted(HOME),
+        }, fh, indent=2)
     if size > 40:
         print("warning: large for a static asset, consider raising SIMPLIFY_DEG", file=sys.stderr)
 
