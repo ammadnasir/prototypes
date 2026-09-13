@@ -431,17 +431,19 @@ const LAKE = turf.polygon([[
   [-79.5200,43.5700],[-79.5200,43.6280]
 ]]);
 
+// Turf 7 takes a FeatureCollection, Turf 6 takes two arguments, and calling the
+// wrong one throws. Each attempt needs its own try or the fallback never runs.
+function pair(fn, a, b){
+  try { const r = fn(turf.featureCollection([a, b])); if (r) return r; } catch(e){}
+  try { const r = fn(a, b); if (r) return r; } catch(e){}
+  return null;
+}
 function union2(a, b){
   if (!a) return b; if (!b) return a;
-  try { const r = turf.union(turf.featureCollection([a, b])); if (r) return r; } catch(e){}
-  try { const r = turf.union(a, b); if (r) return r; } catch(e){}
-  return a;
+  return pair(turf.union, a, b) || a;
 }
 function clipLake(f){
-  try {
-    const r = turf.difference(turf.featureCollection([f, LAKE])) || turf.difference(f, LAKE);
-    return r || f;
-  } catch(e){ try { return turf.difference(f, LAKE) || f; } catch(e2){ return f; } }
+  return pair(turf.difference, f, LAKE) || f;
 }
 
 async function valhallaWalk(lat, lon, mins){
@@ -472,12 +474,21 @@ const ZONE_FILES = {
 const FORM_LABEL = { houses:'houses', apartments:'apartments', mixed:'mixed use' };
 let zoneData = null, zoneErr = null;
 
+async function grab(path){
+  for (const base of ['', '..', '/reach-map-fort-york/..']){   // absolute, then relative
+    try {
+      const r = await fetch(base + path);
+      if (r.ok) return await r.json();
+    } catch(e){ /* try the next one */ }
+  }
+  throw new Error('could not load ' + path);
+}
+
 async function loadZoning(){
   if (zoneData || zoneErr) return zoneData;
   try {
     const [forms, unknown] = await Promise.all(
-      [ZONE_FILES.forms, ZONE_FILES.unknown].map(u =>
-        fetch(u).then(r => { if (!r.ok) throw new Error('file ' + r.status); return r.json(); })));
+      [ZONE_FILES.forms, ZONE_FILES.unknown].map(grab));
     const byForm = {};
     for (const f of (forms.features || [])) byForm[f.properties.form] = f;
     zoneData = { byForm, unknown, generated: (forms.properties || {}).generated || '' };
@@ -485,17 +496,9 @@ async function loadZoning(){
   return zoneData;
 }
 
-function selectedHomes(byForm){
-  let out = null;
-  for (const name of forms) if (byForm[name]) out = union2(out, byForm[name]);
-  return out;
-}
-
 function cutTo(feature, shape){
-  try {
-    const i = turf.intersect(turf.featureCollection([feature, shape])) || turf.intersect(feature, shape);
-    return i && turf.area(i) > 1500 ? i : null;
-  } catch(e){ return null; }
+  const i = pair(turf.intersect, feature, shape);
+  return i && turf.area(i) > 1500 ? i : null;
 }
 
 /* ---------- render ---------- */
@@ -517,7 +520,7 @@ function paint(shape, stops, homes, unknown){
       style:{ color: getCSS('--ink-soft'), weight: 1, opacity: .5,
               dashArray: '2 3', fillColor: getCSS('--ink-soft'), fillOpacity: .12 }
     }).addTo(map);
-    if (homes) homesLayer = L.geoJSON(homes, {
+    if (homes) homesLayer = L.geoJSON(turf.featureCollection(homes), {
       style:{ stroke: false, fillColor: colour, fillOpacity: .34 }
     }).addTo(map);
     shapeLayer = L.geoJSON(shape, {
@@ -589,13 +592,21 @@ async function compute(){
       const z = await loadZoning();
       if (my !== token) return;
       if (z){
+        let tally = '';
         let simple = shape;
         try { simple = turf.simplify(shape, { tolerance: 0.0002, highQuality: false }); } catch(e){}
-        const pick = selectedHomes(z.byForm);
-        homes = pick ? cutTo(pick, simple) : null;
+        const pieces = [];
+        for (const name of forms){
+          const layer = z.byForm[name];
+          if (!layer) continue;
+          const bit = cutTo(layer, simple);
+          if (bit) pieces.push(bit);
+        }
+        homes = pieces.length ? pieces : null;
         unknown = cutTo(z.unknown, simple);
+        tally = `${pieces.length} of ${forms.size} selected, gaps ${unknown ? 'shown' : 'none found'}`;
         note += homes || unknown
-          ? ` Solid fill is zoned for ${[...forms].map(f => FORM_LABEL[f]).join(', ') || 'nothing selected'}. Faint areas sit outside By-law 569-2013 — unknown rather than prohibited, and 215 Fort York Blvd is one of them. Zoning snapshot ${z.generated}.`
+          ? ` Solid fill is zoned for ${[...forms].map(f => FORM_LABEL[f]).join(', ') || 'nothing selected'}. Faint areas sit outside By-law 569-2013 — unknown rather than prohibited, and 215 Fort York Blvd is one of them. Zoning snapshot ${z.generated} (${tally}).`
           : ` No zoning falls inside this shape.`;
       } else {
         note += ` Zoning files didn't load (${zoneErr.message}), so the full reach is shown.`;
