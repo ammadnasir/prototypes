@@ -1,0 +1,41 @@
+name: Build map data
+
+# Free on public repos. Runs on GitHub's machines, commits the results back,
+# and Vercel deploys whatever lands on main.
+
+on:
+  workflow_dispatch:          # run it by hand from the Actions tab
+  schedule:
+    - cron: "17 8 1 * *"      # 1st of each month, 08:17 UTC
+
+permissions:
+  contents: write
+
+jobs:
+  zoning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install shapely
+
+      - name: Fetch zoning
+        run: python scripts/fetch_zoning.py
+
+      - name: Commit if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- data/; then
+            echo "No change — leaving the existing snapshot alone."
+            exit 0
+          fi
+          git add data/
+          git commit -m "Update zoning snapshot"
+          git push
