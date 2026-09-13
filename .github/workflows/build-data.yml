@@ -28,8 +28,12 @@ jobs:
       - name: Fetch zoning
         run: python scripts/fetch_zoning.py
 
+      # keep going if this fails, and leave the output in the repo so it's readable
       - name: Fetch census density
-        run: python scripts/fetch_density.py
+        continue-on-error: true
+        run: |
+          mkdir -p data
+          python scripts/fetch_density.py 2>&1 | tee data/_density-log.txt
 
       - name: Commit if changed
         run: |
