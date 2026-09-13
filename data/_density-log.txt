@@ -1,2 +1,7 @@
-  0 dissemination areas
-Only 0 areas returned - refusing to overwrite good data.
+layer: Census 2021 Dissemination Areas | max records: 2000
+fields: OBJECTID, DAUID, DAPOP2021, DATDWELL20, DAURDWELL2, DAAREA, DAPOPDEN, DAIR2021, DARPLAT, DARPLONG, PRUID, PRNAME, CDUID, CDNAME, CDTYPE, ERUID, ERNAME, CCSUID, CCSNAME, CSDUID, CSDNAME, CSDTYPE, CMAUID, CMANAME, CMATYPE, CMAPUID, CTUID, CTNAME, ADAUID, SACCODE, SACTYPE, Shape__Area, Shape__Length
+  {'f': 'geojson', 'maxAllowableOffset': '0.0002', 'geometryPrecision': '5'} -> 0 features
+  {'f': 'geojson'} -> 0 features
+  {'f': 'json', 'maxAllowableOffset': '0.0002'} -> 0 features
+  {'f': 'json'} -> 0 features
+No query variant returned features.
