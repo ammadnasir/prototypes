@@ -84,8 +84,10 @@
 
   .grab{
     display:block;width:100%;background:transparent;border:0;
-    padding:0 0 12px;cursor:pointer;touch-action:none;
+    padding:14px 0 16px;margin-top:-10px;
+    cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none;
   }
+  .panel.dragging .grab{cursor:grabbing}
   .grab .bar{
     display:block;width:40px;height:4px;border-radius:2px;
     background:rgba(255,255,255,.28);margin:0 auto;
@@ -957,35 +959,42 @@ function setDrawer(open){
   requestAnimationFrame(() => offset(sheet() && shut ? hidden() : 0));
 }
 
-handle.addEventListener('pointerdown', e => {
+function dragStart(y, capture){
   if (!sheet()){ drag = { tapOnly: true }; return; }
-  handle.setPointerCapture(e.pointerId);
+  if (capture) capture();
   panel.classList.add('dragging');
-  drag = { y: e.clientY, t: Date.now(), from: shut ? hidden() : 0, moved: 0 };
-});
-
-handle.addEventListener('pointermove', e => {
+  drag = { y, t: Date.now(), from: shut ? hidden() : 0, moved: 0 };
+}
+function dragMove(y){
   if (!drag || drag.tapOnly) return;
-  const dy = e.clientY - drag.y;
+  const dy = y - drag.y;
   drag.moved = Math.max(drag.moved, Math.abs(dy));
   offset(Math.min(hidden(), Math.max(0, drag.from + dy)));   // follow the finger, within bounds
-});
-
-function release(e){
+}
+function dragEnd(y){
   if (!drag) return;
   const d = drag; drag = null;
   panel.classList.remove('dragging');
   if (d.tapOnly || d.moved < 6){ setDrawer(shut); return; }   // a tap still toggles
 
-  const dy = e.clientY - d.y;
+  const dy = y - d.y;
   const speed = dy / Math.max(1, Date.now() - d.t);           // px per ms
   if (Math.abs(speed) > 0.5) setDrawer(speed < 0);            // a flick wins
   else setDrawer(d.from + dy < hidden() / 2);                 // otherwise snap to the nearer end
 }
-handle.addEventListener('pointerup', release);
-handle.addEventListener('pointercancel', () => {
-  if (drag) { drag = null; panel.classList.remove('dragging'); setDrawer(!shut ? true : false); }
-});
+
+if (window.PointerEvent){
+  handle.addEventListener('pointerdown', e =>
+    dragStart(e.clientY, () => { try { handle.setPointerCapture(e.pointerId); } catch(err){} }));
+  handle.addEventListener('pointermove', e => dragMove(e.clientY));
+  handle.addEventListener('pointerup', e => dragEnd(e.clientY));
+  handle.addEventListener('pointercancel', () => { drag = null; panel.classList.remove('dragging'); setDrawer(!shut); });
+} else {
+  handle.addEventListener('touchstart', e => dragStart(e.touches[0].clientY), { passive: true });
+  handle.addEventListener('touchmove', e => { dragMove(e.touches[0].clientY); e.preventDefault(); }, { passive: false });
+  handle.addEventListener('touchend', e => dragEnd((e.changedTouches[0] || {}).clientY || 0));
+  handle.addEventListener('click', () => { if (!drag) setDrawer(shut); });
+}
 
 window.addEventListener('resize', () => offset(sheet() && shut ? hidden() : 0));
 
