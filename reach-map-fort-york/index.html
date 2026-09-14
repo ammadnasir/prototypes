@@ -17,9 +17,9 @@
     --walk:#1F6F6B;
     --ttc:#C8102E;
     --unknown:#8C8578;
-    --f-houses:#3D6FA8;
-    --f-apartments:#8A4F9E;
-    --f-mixed:#2F8FA8;
+    --f-houses:#C4568E;      /* houses, pink */
+    --f-apartments:#3D6FA8;  /* other residential, blue */
+    --f-mixed:#7E57A8;       /* condos and mixed use, purple */
     --f-parks:#4E8C57;
     --on-ink:#E9F0F3;
     --on-ink-dim:#9FB3BE;
@@ -261,7 +261,7 @@
 
   <div class="forms on" id="forms" role="group" aria-label="Built form">
     <button data-form="houses" aria-pressed="true">Houses</button>
-    <button data-form="apartments" aria-pressed="true">Apartments</button>
+    <button data-form="apartments" aria-pressed="true">Other residential</button>
     <button data-form="mixed" aria-pressed="true">Condos</button>
     <button data-form="parks" aria-pressed="true">Parks</button>
   </div>
@@ -556,7 +556,7 @@ const RAIL_STOPS = new Set(
 const ZONE_FILES = { forms: '/data/zoning-forms.geojson' };   // one feature per built form
 const FORM_COLOUR = { houses:'--f-houses', apartments:'--f-apartments',
                       mixed:'--f-mixed', parks:'--f-parks' };
-const FORM_LABEL = { houses:'houses', apartments:'apartments',
+const FORM_LABEL = { houses:'houses', apartments:'other residential',
                      mixed:'condos and mixed use', parks:'parks and open space' };
 let zoneData = null, zoneErr = null;
 
