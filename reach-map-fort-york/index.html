@@ -18,8 +18,8 @@
     --ttc:#C8102E;
     --unknown:#8C8578;
     --f-houses:#C4568E;      /* houses, pink */
-    --f-apartments:#3D6FA8;  /* other residential, blue */
-    --f-mixed:#7E57A8;       /* condos and mixed use, purple */
+    --f-multiplex:#3D6FA8;   /* multiplexes and low-rise, blue */
+    --f-towers:#7E57A8;      /* apartments, condos, towers, purple */
     --f-parks:#4E8C57;
     --on-ink:#E9F0F3;
     --on-ink-dim:#9FB3BE;
@@ -261,8 +261,8 @@
 
   <div class="forms on" id="forms" role="group" aria-label="Built form">
     <button data-form="houses" aria-pressed="true">Houses</button>
-    <button data-form="apartments" aria-pressed="true">Apartments</button>
-    <button data-form="mixed" aria-pressed="true">Condos</button>
+    <button data-form="multiplex" aria-pressed="true">Multiplex</button>
+    <button data-form="towers" aria-pressed="true">Towers</button>
     <button data-form="parks" aria-pressed="true">Parks</button>
   </div>
 
@@ -285,7 +285,7 @@ let mode = 'walk';
 let clock = 8.5;            // hours on a 5:00-to-29:00 axis
 let direct = true;          // one vehicle only
 let homesOnly = true;       // clip the shape to residential zoning
-let forms = new Set(['houses','apartments','mixed','parks']);
+let forms = new Set(['houses','multiplex','towers','parks']);
 let view = 'zoning';
 const DENSITY_COLOURS = ['#DCE6EE', '#A9C2D8', '#6E93B8', '#3E6890', '#1F4166'];
 let arriving = true;        // the clock is an arrival time at Fort York
@@ -555,10 +555,12 @@ const RAIL_STOPS = new Set(
 
 /* ---------- zoning (static snapshots built by GitHub Actions) ---------- */
 const ZONE_FILES = { forms: '/data/zoning-forms.geojson' };   // one feature per built form
-const FORM_COLOUR = { houses:'--f-houses', apartments:'--f-apartments',
-                      mixed:'--f-mixed', parks:'--f-parks' };
-const FORM_LABEL = { houses:'houses', apartments:'apartments and multiplexes',
-                     mixed:'condos and mixed use', parks:'parks and open space' };
+const FORM_COLOUR = { houses:'--f-houses', multiplex:'--f-multiplex',
+                      towers:'--f-towers', parks:'--f-parks' };
+const FORM_LABEL = { houses:'houses, semis and towns',
+                     multiplex:'multiplexes and low-rise',
+                     towers:'apartments, condos and towers',
+                     parks:'parks and open space' };
 let zoneData = null, zoneErr = null;
 
 async function grab(path){
@@ -590,7 +592,8 @@ async function loadGapHomes(){
   return gapHomes;
 }
 // buildings reuse the zoning colours exactly, so one legend covers both
-const GAP_BUILDING = { houses:'--f-houses', apartments:'--f-apartments' };
+const GAP_BUILDING = { houses:'--f-houses', multiplex:'--f-multiplex',
+                       towers:'--f-towers', parks:'--f-parks' };
 
 let densityData = null, densityErr = null;
 async function loadDensity(){
@@ -642,9 +645,11 @@ function paint(shape, stops, homes, unknown, density, buildings){
     if (buildings){
       buildingLayer = L.layerGroup(buildings.map(f => {
         const c = GAP_BUILDING[f.properties.form];
-        return L.geoJSON(f, c
-          ? { style:{ color: getCSS(c), weight:.5, opacity:.8, fillColor:getCSS(c), fillOpacity:.75 } }
-          : { style:{ color:'#8C8578', weight:.5, opacity:.55, fill:false } });
+        if (!c) return L.geoJSON(f, { style:{ color:'#8C8578', weight:.5, opacity:.55, fill:false } });
+        const park = f.properties.form === 'parks';
+        return L.geoJSON(f, { style:{ color: getCSS(c), weight: park ? 0 : .5,
+                                      opacity:.8, fillColor: getCSS(c),
+                                      fillOpacity: park ? .42 : .75 } });
       })).addTo(map);
     }
 
@@ -924,7 +929,7 @@ function paintLegend(pieces, stops, density, buildings){
   // one entry per colour, whether it arrived as zoning or as a building footprint
   const seen = new Set((pieces || []).map(p => p.form));
   for (const f of (buildings || [])) seen.add(f.properties.form);
-  const order = ['houses', 'mixed', 'parks', 'apartments'];   // 'other' entries sit together at the end
+  const order = ['houses', 'multiplex', 'towers', 'parks'];   // 'other building' closes the list
   const shown = order.filter(f => seen.has(f));
   if (shown.length){
     rows.push('<div class="hdr">land use</div>');
