@@ -556,8 +556,15 @@ const RAIL_STOPS = new Set(
 
 /* ---------- zoning (static snapshots built by GitHub Actions) ---------- */
 const ZONE_FILES = { forms: '/data/zoning-forms.geojson' };   // one feature per built form
-const FORM_COLOUR = { houses:'--f-houses', multiplex:'--f-multiplex',
+// houses and multiplexes are both low-rise house-form streets, so one colour
+const FORM_COLOUR = { houses:'--f-houses', multiplex:'--f-houses',
                       towers:'--f-towers', parks:'--f-parks' };
+// one legend row per colour, not per zoning category
+const LEGEND_GROUPS = [
+  { forms:['houses','multiplex'], colour:'--f-houses', label:'houses and multiplexes' },
+  { forms:['towers'],             colour:'--f-towers', label:'apartments, condos and towers' },
+  { forms:['parks'],              colour:'--f-parks',  label:'parks and open space' }
+];
 const FORM_LABEL = { houses:'houses, semis and towns',
                      multiplex:'multiplexes and low-rise',
                      towers:'apartments, condos and towers',
@@ -593,7 +600,7 @@ async function loadGapHomes(){
   return gapHomes;
 }
 // buildings reuse the zoning colours exactly, so one legend covers both
-const GAP_BUILDING = { houses:'--f-houses', multiplex:'--f-multiplex',
+const GAP_BUILDING = { houses:'--f-houses', multiplex:'--f-houses',
                        towers:'--f-towers', parks:'--f-parks' };
 
 let densityData = null, densityErr = null;
@@ -920,11 +927,9 @@ function paintLegend(pieces, stops, density, buildings){
   // one entry per colour, whether it arrived as zoning or as a building footprint
   const seen = new Set((pieces || []).map(p => p.form));
   for (const f of (buildings || [])) seen.add(f.properties.form);
-  const order = ['houses', 'multiplex', 'towers', 'parks'];   // 'other building' closes the list
-  const shown = order.filter(f => seen.has(f));
-  if (shown.length){
-    for (const f of shown)
-      rows.push(`<div class="row"><span class="sw" style="background:${getCSS(FORM_COLOUR[f])}"></span>${FORM_LABEL[f]}</div>`);
+  for (const g of LEGEND_GROUPS){
+    if (!g.forms.some(f => seen.has(f))) continue;
+    rows.push(`<div class="row"><span class="sw" style="background:${getCSS(g.colour)}"></span>${g.label}</div>`);
   }
   if ((buildings || []).some(f => !FORM_COLOUR[f.properties.form]))
     rows.push('<div class="row"><span class="sw" style="background:transparent;border:1px solid #8C8578"></span>other building</div>');
