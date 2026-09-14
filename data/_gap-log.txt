@@ -1,6 +1,6 @@
 searching 37.2 (deg^2 x 1e4) of zoning gap
-  102291 buildings returned
     attempt 1 failed: HTTP Error 504: Gateway Timeout
+  102291 buildings returned
   7076 green spaces returned
-  inside the gaps: {'other': 1650, 'multiplex': 297, 'towers_assumed': 202, 'towers': 498, 'houses': 893, 'parks': 3154}
+  inside the gaps: {'other': 1650, 'midrise': 252, 'residential': 202, 'highrise': 209, 'lowrise': 132, 'houses': 893, 'parks': 3154}
 wrote data/homes-gap.geojson (1.87 MB)

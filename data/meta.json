@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-14T15:33:38Z",
+  "generated": "2026-09-14T16:24:36Z",
   "zone_field": "ZN_ZONE",
   "parcels_residential": 6580,
   "parcels_by_form": {
@@ -35,14 +35,15 @@
     "buildings": 6492,
     "by_form": {
       "other": 1650,
-      "multiplex": 297,
-      "towers_assumed": 202,
-      "towers": 498,
+      "midrise": 252,
+      "residential": 202,
+      "highrise": 209,
+      "lowrise": 132,
       "houses": 893,
       "parks": 3154
     },
     "megabytes": 1.87,
-    "generated": "2026-09-14T15:34:39Z"
+    "generated": "2026-09-14T16:25:20Z"
   },
   "density": {
     "areas": 3225,
@@ -59,6 +60,6 @@
       5575
     ],
     "megabytes": 1.86,
-    "generated": "2026-09-14T15:37:16Z"
+    "generated": "2026-09-14T16:28:15Z"
   }
 }
