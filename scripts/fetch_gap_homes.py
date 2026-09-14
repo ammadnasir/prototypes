@@ -72,7 +72,7 @@ def classify(tags):
     levels = storeys(tags)
     if kind in ("yes", "") and levels and levels >= 4:
         return band(levels)
-    return "other"
+    return "other"           # an untagged building is not assumed to be a home
 
 
 def band(levels):
@@ -131,8 +131,7 @@ def main():
         except Exception:                              # noqa: BLE001
             continue
         if form == "apartments_unknown":
-            form = "highrise"    # downtown, an untagged apartment block is almost always tall
-            counts["highrise_assumed"] = counts.get("highrise_assumed", 0) + 1
+            form = "residential"   # a home, height not recorded - say so rather than guess
         counts[form] = counts.get(form, 0) + 1
         feats.append({"type": "Feature",
                       "properties": {"form": form},
