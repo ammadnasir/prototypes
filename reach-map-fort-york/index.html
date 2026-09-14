@@ -906,13 +906,7 @@ el('addr').addEventListener('keydown', e => { if (e.key === 'Enter') movePin(); 
 
 /* ---------- legend ---------- */
 function paintLegend(pieces, stops, density, buildings){
-  const c = mode === 'walk' ? getCSS('--walk') : getCSS('--ttc');
   const rows = [];
-
-  if (stops && stops.length){
-    rows.push(`<div class="row"><span class="dot" style="background:${c}"></span>subway stop</div>`);
-    rows.push(`<div class="row"><span class="dot" style="background:${c};opacity:.65;width:7px;height:7px"></span>streetcar stop</div>`);
-  }
 
   if (density && density.breaks.length){
     rows.push('<div class="hdr">people per km²</div>');
