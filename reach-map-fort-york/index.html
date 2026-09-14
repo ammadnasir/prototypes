@@ -589,7 +589,8 @@ async function loadGapHomes(){
   catch(err){ gapErr = err; }
   return gapHomes;
 }
-const GAP_BUILDING = { houses:'--f-houses', apartments:'--f-mixed' };
+// buildings reuse the zoning colours exactly, so one legend covers both
+const GAP_BUILDING = { houses:'--f-houses', apartments:'--f-apartments' };
 
 let densityData = null, densityErr = null;
 async function loadDensity(){
@@ -905,30 +906,36 @@ function paintLegend(pieces, stops, density, buildings){
   const c = mode === 'walk' ? getCSS('--walk') : getCSS('--ttc');
   const rows = [`<div class="hdr">${minutes} min ${mode === 'walk' ? 'on foot' : 'by TTC'}</div>`,
                 `<div class="row"><span class="ln" style="border-color:${c}"></span>reach boundary</div>`];
+
   if (stops && stops.length){
     rows.push(`<div class="row"><span class="dot" style="background:${c}"></span>subway stop</div>`);
     rows.push(`<div class="row"><span class="dot" style="background:${c};opacity:.65;width:7px;height:7px"></span>streetcar stop</div>`);
   }
+
   if (density && density.breaks.length){
     rows.push('<div class="hdr">people per km²</div>');
     const b = density.breaks;
-    const labels = [`under ${b[0].toLocaleString()}`, `${b[0].toLocaleString()}–${b[1].toLocaleString()}`,
-                    `${b[1].toLocaleString()}–${b[2].toLocaleString()}`, `${b[2].toLocaleString()}–${b[3].toLocaleString()}`,
-                    `over ${b[3].toLocaleString()}`];
-    labels.forEach((t, i) =>
+    [`under ${b[0].toLocaleString()}`, `${b[0].toLocaleString()}–${b[1].toLocaleString()}`,
+     `${b[1].toLocaleString()}–${b[2].toLocaleString()}`, `${b[2].toLocaleString()}–${b[3].toLocaleString()}`,
+     `over ${b[3].toLocaleString()}`].forEach((t, i) =>
       rows.push(`<div class="row"><span class="sw" style="background:${DENSITY_COLOURS[i]}"></span>${t}</div>`));
   }
-  if (pieces && pieces.length){
-    rows.push('<div class="hdr">zoning</div>');
-    for (const p of pieces)
-      rows.push(`<div class="row"><span class="sw" style="background:${getCSS(FORM_COLOUR[p.form])}"></span>${FORM_LABEL[p.form]}</div>`);
+
+  // one entry per colour, whether it arrived as zoning or as a building footprint
+  const seen = new Set((pieces || []).map(p => p.form));
+  for (const f of (buildings || [])) seen.add(f.properties.form);
+  const order = ['houses', 'apartments', 'mixed', 'parks'];
+  const shown = order.filter(f => seen.has(f));
+  if (shown.length){
+    rows.push('<div class="hdr">land use</div>');
+    for (const f of shown)
+      rows.push(`<div class="row"><span class="sw" style="background:${getCSS(FORM_COLOUR[f])}"></span>${FORM_LABEL[f]}</div>`);
   }
-  if (buildings && buildings.length){
-    rows.push('<div class="hdr">buildings, no zoning published</div>');
-    rows.push(`<div class="row"><span class="sw" style="background:${getCSS('--f-houses')}"></span>houses</div>`);
-    rows.push(`<div class="row"><span class="sw" style="background:${getCSS('--f-mixed')}"></span>apartments and condos</div>`);
+  if ((buildings || []).some(f => !FORM_COLOUR[f.properties.form]))
     rows.push('<div class="row"><span class="sw" style="background:transparent;border:1px solid #8C8578"></span>other building</div>');
-  }
+  if (buildings && buildings.length)
+    rows.push('<div class="hdr">filled by zoning, outlined where none is published</div>');
+
   el('legend').innerHTML = rows.join('');
 }
 
