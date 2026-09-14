@@ -46,6 +46,7 @@
   .grey-btn:hover{background:#f4f4f4}
   .leaflet-container{font-family:inherit}
 
+  .legend:empty{display:none}
   .legend{
     position:absolute;z-index:1000;left:12px;top:12px;
     background:rgba(18,33,43,.93);color:var(--on-ink);
@@ -646,10 +647,7 @@ function paint(shape, stops, homes, unknown, density, buildings){
       buildingLayer = L.layerGroup(buildings.map(f => {
         const c = GAP_BUILDING[f.properties.form];
         if (!c) return L.geoJSON(f, { style:{ color:'#8C8578', weight:.5, opacity:.55, fill:false } });
-        const park = f.properties.form === 'parks';
-        return L.geoJSON(f, { style:{ color: getCSS(c), weight: park ? 0 : .5,
-                                      opacity:.8, fillColor: getCSS(c),
-                                      fillOpacity: park ? .42 : .75 } });
+        return L.geoJSON(f, { style:{ stroke:false, fillColor: getCSS(c), fillOpacity:.5 } });
       })).addTo(map);
     }
 
@@ -909,8 +907,7 @@ el('addr').addEventListener('keydown', e => { if (e.key === 'Enter') movePin(); 
 /* ---------- legend ---------- */
 function paintLegend(pieces, stops, density, buildings){
   const c = mode === 'walk' ? getCSS('--walk') : getCSS('--ttc');
-  const rows = [`<div class="hdr">${minutes} min ${mode === 'walk' ? 'on foot' : 'by TTC'}</div>`,
-                `<div class="row"><span class="ln" style="border-color:${c}"></span>reach boundary</div>`];
+  const rows = [];
 
   if (stops && stops.length){
     rows.push(`<div class="row"><span class="dot" style="background:${c}"></span>subway stop</div>`);
@@ -932,18 +929,11 @@ function paintLegend(pieces, stops, density, buildings){
   const order = ['houses', 'multiplex', 'towers', 'parks'];   // 'other building' closes the list
   const shown = order.filter(f => seen.has(f));
   if (shown.length){
-    rows.push('<div class="hdr">land use</div>');
     for (const f of shown)
       rows.push(`<div class="row"><span class="sw" style="background:${getCSS(FORM_COLOUR[f])}"></span>${FORM_LABEL[f]}</div>`);
   }
   if ((buildings || []).some(f => !FORM_COLOUR[f.properties.form]))
     rows.push('<div class="row"><span class="sw" style="background:transparent;border:1px solid #8C8578"></span>other building</div>');
-  if (buildings && buildings.length){
-    const k = getCSS('--f-towers');
-    rows.push('<div class="hdr">two shades of each colour</div>');
-    rows.push(`<div class="row"><span class="sw" style="background:${k};opacity:.38"></span>zoned for it</div>`);
-    rows.push(`<div class="row"><span class="sw" style="background:${k}"></span>a building that exists</div>`);
-  }
 
   el('legend').innerHTML = rows.join('');
 }
