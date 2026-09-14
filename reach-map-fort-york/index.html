@@ -935,13 +935,13 @@ function updatePeek(){
   el('peek').textContent = bits.join(' · ');
 }
 
-const panel = el('panel'), grab = el('grab');
+const panel = el('panel'), handle = el('grab');
 const sheet = () => window.matchMedia('(max-width:759px)').matches;
 let shut = false, drag = null;
 
 // how far down the sheet slides to leave only the handle showing
 function hidden(){
-  const handle = grab.getBoundingClientRect().height;
+  const handle = handle.getBoundingClientRect().height;
   return Math.max(0, panel.getBoundingClientRect().height - handle - 6);
 }
 function offset(px){
@@ -951,20 +951,20 @@ function offset(px){
 function setDrawer(open){
   shut = !open;
   panel.classList.toggle('shut', shut);
-  grab.setAttribute('aria-expanded', open);
-  grab.setAttribute('aria-label', open ? 'Collapse controls' : 'Expand controls');
+  handle.setAttribute('aria-expanded', open);
+  handle.setAttribute('aria-label', open ? 'Collapse controls' : 'Expand controls');
   updatePeek();
   requestAnimationFrame(() => offset(sheet() && shut ? hidden() : 0));
 }
 
-grab.addEventListener('pointerdown', e => {
+handle.addEventListener('pointerdown', e => {
   if (!sheet()){ drag = { tapOnly: true }; return; }
-  grab.setPointerCapture(e.pointerId);
+  handle.setPointerCapture(e.pointerId);
   panel.classList.add('dragging');
   drag = { y: e.clientY, t: Date.now(), from: shut ? hidden() : 0, moved: 0 };
 });
 
-grab.addEventListener('pointermove', e => {
+handle.addEventListener('pointermove', e => {
   if (!drag || drag.tapOnly) return;
   const dy = e.clientY - drag.y;
   drag.moved = Math.max(drag.moved, Math.abs(dy));
@@ -982,8 +982,8 @@ function release(e){
   if (Math.abs(speed) > 0.5) setDrawer(speed < 0);            // a flick wins
   else setDrawer(d.from + dy < hidden() / 2);                 // otherwise snap to the nearer end
 }
-grab.addEventListener('pointerup', release);
-grab.addEventListener('pointercancel', () => {
+handle.addEventListener('pointerup', release);
+handle.addEventListener('pointercancel', () => {
   if (drag) { drag = null; panel.classList.remove('dragging'); setDrawer(!shut ? true : false); }
 });
 
