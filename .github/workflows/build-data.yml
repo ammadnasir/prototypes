@@ -29,6 +29,12 @@ jobs:
         run: python scripts/fetch_zoning.py
 
       # keep going if this fails, and leave the output in the repo so it's readable
+      - name: Fetch homes where zoning is silent
+        continue-on-error: true
+        run: |
+          mkdir -p data
+          python scripts/fetch_gap_homes.py 2>&1 | tee data/_gap-log.txt
+
       - name: Fetch census density
         continue-on-error: true
         run: |
