@@ -19,7 +19,8 @@
     --unknown:#8C8578;
     --f-houses:#3D6FA8;
     --f-apartments:#8A4F9E;
-    --f-mixed:#C4703A;
+    --f-mixed:#2F8FA8;
+    --f-parks:#4E8C57;
     --on-ink:#E9F0F3;
     --on-ink-dim:#9FB3BE;
     --panel-pad:20px;
@@ -261,7 +262,8 @@
   <div class="forms on" id="forms" role="group" aria-label="Built form">
     <button data-form="houses" aria-pressed="true">Houses</button>
     <button data-form="apartments" aria-pressed="true">Apartments</button>
-    <button data-form="mixed" aria-pressed="true">Mixed use</button>
+    <button data-form="mixed" aria-pressed="true">Condos</button>
+    <button data-form="parks" aria-pressed="true">Parks</button>
   </div>
 
   <div class="note" id="note"></div>
@@ -283,7 +285,7 @@ let mode = 'walk';
 let clock = 8.5;            // hours on a 5:00-to-29:00 axis
 let direct = true;          // one vehicle only
 let homesOnly = true;       // clip the shape to residential zoning
-let forms = new Set(['houses','apartments','mixed']);
+let forms = new Set(['houses','apartments','mixed','parks']);
 let view = 'zoning';
 const DENSITY_COLOURS = ['#DCE6EE', '#A9C2D8', '#6E93B8', '#3E6890', '#1F4166'];
 let arriving = true;        // the clock is an arrival time at Fort York
@@ -552,8 +554,10 @@ const RAIL_STOPS = new Set(
 
 /* ---------- zoning (static snapshots built by GitHub Actions) ---------- */
 const ZONE_FILES = { forms: '/data/zoning-forms.geojson' };   // one feature per built form
-const FORM_COLOUR = { houses:'--f-houses', apartments:'--f-apartments', mixed:'--f-mixed' };
-const FORM_LABEL = { houses:'houses', apartments:'apartments', mixed:'mixed use' };
+const FORM_COLOUR = { houses:'--f-houses', apartments:'--f-apartments',
+                      mixed:'--f-mixed', parks:'--f-parks' };
+const FORM_LABEL = { houses:'houses', apartments:'apartments',
+                     mixed:'condos and mixed use', parks:'parks and open space' };
 let zoneData = null, zoneErr = null;
 
 async function grab(path){
@@ -742,7 +746,7 @@ async function compute(){
         const names = pieces.map(p => FORM_LABEL[p.form]);
         tally = names.length ? names.join(', ') : 'nothing found here';
         note += homes || unknown
-          ? ` Patches are coloured by what the zoning permits. Blank land inside the boundary is either not zoned for housing or governed by a former by-law the City doesn't publish as a map — Fort York and CityPlace are the latter. Showing: ${tally}. Snapshot ${z.generated}.`
+          ? ` Patches show what the zoning permits. Blank means one of two things: land zoned for something other than homes or parks — offices, industry, institutions, rail — or land under a former by-law the City doesn't publish as a map, which is why the blocks either side of the pin are empty. Showing: ${tally}. Snapshot ${z.generated}.`
           : ` No zoning falls inside this shape.`;
       } else {
         note += ` Zoning files didn't load (${zoneErr.message}), so the full reach is shown.`;
