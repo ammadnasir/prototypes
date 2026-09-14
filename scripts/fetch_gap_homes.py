@@ -34,11 +34,15 @@ WINDOW = (43.612, -79.48, 43.695, -79.31)   # south, west, north, east
 SIMPLIFY_DEG = 0.000015  # about 1.5 m, keeps building corners honest
 
 
-def overpass(south, west, north, east, tries=3):
-    # every building in the window; classification happens below
-    q = f"""[out:json][timeout:240];
-(way["building"]({south},{west},{north},{east}););
-out geom;"""
+def overpass(south, west, north, east, tries=3, kind="buildings"):
+    area = f"({south},{west},{north},{east})"
+    if kind == "buildings":
+        q = f'[out:json][timeout:240];(way["building"]{area};);out geom;'
+    else:
+        q = ('[out:json][timeout:240];('
+             f'way["leisure"~"^(park|garden|nature_reserve|recreation_ground)$"]{area};'
+             f'way["landuse"~"^(grass|recreation_ground|village_green)$"]{area};'
+             ');out geom;')
     for attempt in range(tries):
         try:
             req = Request(OVERPASS, data=urlencode({"data": q}).encode(),
@@ -56,19 +60,36 @@ def classify(tags):
     if kind in HOUSE:
         return "houses"
     if kind in APARTMENT:
-        return "apartments"
+        lv = storeys(tags)
+        if lv is None:
+            return "apartments_unknown"        # counted, then resolved below
+        return "towers" if lv >= 8 else "multiplex"
     if kind in ("commercial", "retail", "office", "industrial", "warehouse",
                 "school", "university", "hospital", "church", "civic",
                 "public", "hotel", "parking", "garage", "garages", "roof",
                 "shed", "service", "train_station", "stadium"):
         return None                      # clearly not somewhere you live
-    levels = (tags or {}).get("building:levels")
+    levels = storeys(tags)
+    if kind in ("yes", "") and levels and levels >= 4:
+        return "towers" if levels >= 8 else "multiplex"
+    return "other"
+
+
+def storeys(tags):
+    for key in ("building:levels", "levels"):
+        try:
+            v = (tags or {}).get(key)
+            if v:
+                return float(str(v).split(";")[0])
+        except ValueError:
+            pass
     try:
-        if kind in ("yes", "") and levels and float(levels) >= 4:
-            return "apartments"          # a tall untagged building downtown
+        h = (tags or {}).get("height")
+        if h:
+            return float(str(h).replace("m", "").strip()) / 3.1
     except ValueError:
         pass
-    return "other"
+    return None
 
 
 def main():
@@ -80,6 +101,8 @@ def main():
 
     data = overpass(*WINDOW)
     print(f"  {len(data.get('elements', []))} buildings returned")
+    green = overpass(*WINDOW, kind="green")
+    print(f"  {len(green.get('elements', []))} green spaces returned")
 
     feats, counts = [], {}
     for el in data.get("elements", []):
@@ -99,10 +122,33 @@ def main():
                 continue
         except Exception:                              # noqa: BLE001
             continue
+        if form == "apartments_unknown":
+            form = "towers"      # downtown, an untagged apartment block is almost always tall
+            counts["towers_assumed"] = counts.get("towers_assumed", 0) + 1
         counts[form] = counts.get(form, 0) + 1
         feats.append({"type": "Feature",
                       "properties": {"form": form},
                       "geometry": mapping(poly.simplify(SIMPLIFY_DEG, preserve_topology=True))})
+    # parks and open space in the same gaps
+    for el in green.get("elements", []):
+        if "geometry" not in el:
+            continue
+        ring = [(p["lon"], p["lat"]) for p in el["geometry"]]
+        if len(ring) < 4:
+            continue
+        try:
+            poly = Polygon(ring)
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+            if poly.is_empty or not poly.representative_point().within(hunted):
+                continue
+        except Exception:                              # noqa: BLE001
+            continue
+        counts["parks"] = counts.get("parks", 0) + 1
+        feats.append({"type": "Feature",
+                      "properties": {"form": "parks"},
+                      "geometry": mapping(poly.simplify(SIMPLIFY_DEG, preserve_topology=True))})
+
     print(f"  inside the gaps: {counts}")
 
     if not feats:
