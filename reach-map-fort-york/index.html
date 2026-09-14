@@ -938,8 +938,12 @@ function paintLegend(pieces, stops, density, buildings){
   }
   if ((buildings || []).some(f => !FORM_COLOUR[f.properties.form]))
     rows.push('<div class="row"><span class="sw" style="background:transparent;border:1px solid #8C8578"></span>other building</div>');
-  if (buildings && buildings.length)
-    rows.push('<div class="hdr">filled by zoning, outlined where none is published</div>');
+  if (buildings && buildings.length){
+    const k = getCSS('--f-towers');
+    rows.push('<div class="hdr">two shades of each colour</div>');
+    rows.push(`<div class="row"><span class="sw" style="background:${k};opacity:.38"></span>zoned for it</div>`);
+    rows.push(`<div class="row"><span class="sw" style="background:${k}"></span>a building that exists</div>`);
+  }
 
   el('legend').innerHTML = rows.join('');
 }
