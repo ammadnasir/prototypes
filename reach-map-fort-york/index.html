@@ -653,7 +653,7 @@ function paint(shape, stops, homes, unknown, density, buildings){
 
     homesLayer = L.layerGroup((homes || []).map(p => {
       const c = getCSS(FORM_COLOUR[p.form]);
-      return L.geoJSON(p.feature, { style:{ stroke:false, fillColor:c, fillOpacity:.38 } });
+      return L.geoJSON(p.feature, { style:{ stroke:false, fillColor:c, fillOpacity:.5 } });
     })).addTo(map);
     shapeLayer = L.geoJSON(shape, {
       style:{ color: colour, weight: 1.5, opacity: .85, fill: false, dashArray: '4 3' }
