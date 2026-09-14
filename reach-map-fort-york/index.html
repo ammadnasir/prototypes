@@ -293,7 +293,8 @@ let arriving = true;        // the clock is an arrival time at Fort York
 let minutes = 20;
 
 /* ---------- map ---------- */
-const map = L.map('map', { zoomControl: false, attributionControl: true })
+const map = L.map('map', { zoomControl: false, attributionControl: true,
+                           zoomSnap: 0, zoomDelta: 0.5, wheelPxPerZoomLevel: 100 })
   .setView([origin.lat, origin.lon], 13);
 L.control.zoom({ position: 'topright' }).addTo(map);
 
@@ -628,8 +629,23 @@ function paint(shape, stops, homes, unknown, density){
       style:{ color: colour, weight: 1.5, opacity: .9, fill: false, dashArray: '4 3' }
     }).addTo(map);
   } else if (homes || unknown){
-    // solid = dwellings permitted, faint = by-law says nothing, dashed = full reach
+    // zoning patches by form; where no by-law applies, census dwellings instead
     paintLegend(homes, stops, null, unknown);
+
+    if (unknown && unknown.kind === 'dwellings'){
+      unknownLayer = L.layerGroup(unknown.areas.map(x =>
+        L.geoJSON(x.f, { style:{ color:'#fff', weight:.4, opacity:.5,
+                                 fillColor: GAP_COLOURS[x.band], fillOpacity:.62 } })
+          .bindTooltip(`No zoning on file · ${x.f.properties.w.toLocaleString()} homes per km²`,
+                       { className:'stop-tip', sticky:true })
+      )).addTo(map);
+    } else if (unknown && unknown.kind === 'flat'){
+      unknownLayer = L.geoJSON(unknown.feature, {
+        style:{ color: getCSS('--unknown'), weight:1, opacity:.7, dashArray:'3 3',
+                fillColor: getCSS('--unknown'), fillOpacity:.26 }
+      }).addTo(map);
+    }
+
     homesLayer = L.layerGroup((homes || []).map(p => {
       const c = getCSS(FORM_COLOUR[p.form]);
       return L.geoJSON(p.feature, p.form === 'unknown'
