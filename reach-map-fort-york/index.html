@@ -261,7 +261,7 @@
 
   <div class="forms on" id="forms" role="group" aria-label="Built form">
     <button data-form="houses" aria-pressed="true">Houses</button>
-    <button data-form="apartments" aria-pressed="true">Other residential</button>
+    <button data-form="apartments" aria-pressed="true">Apartments</button>
     <button data-form="mixed" aria-pressed="true">Condos</button>
     <button data-form="parks" aria-pressed="true">Parks</button>
   </div>
@@ -557,7 +557,7 @@ const RAIL_STOPS = new Set(
 const ZONE_FILES = { forms: '/data/zoning-forms.geojson' };   // one feature per built form
 const FORM_COLOUR = { houses:'--f-houses', apartments:'--f-apartments',
                       mixed:'--f-mixed', parks:'--f-parks' };
-const FORM_LABEL = { houses:'houses', apartments:'other residential',
+const FORM_LABEL = { houses:'houses', apartments:'apartments and multiplexes',
                      mixed:'condos and mixed use', parks:'parks and open space' };
 let zoneData = null, zoneErr = null;
 
@@ -924,7 +924,7 @@ function paintLegend(pieces, stops, density, buildings){
   // one entry per colour, whether it arrived as zoning or as a building footprint
   const seen = new Set((pieces || []).map(p => p.form));
   for (const f of (buildings || [])) seen.add(f.properties.form);
-  const order = ['houses', 'apartments', 'mixed', 'parks'];
+  const order = ['houses', 'mixed', 'parks', 'apartments'];   // 'other' entries sit together at the end
   const shown = order.filter(f => seen.has(f));
   if (shown.length){
     rows.push('<div class="hdr">land use</div>');
