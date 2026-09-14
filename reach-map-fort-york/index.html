@@ -101,10 +101,8 @@
   .panel.shut .grab .peek{display:block}
   .grab .bar{transition:background .15s}
   .panel.dragging .grab .bar{background:rgba(255,255,255,.6)}
-  @media (min-width:760px){
-    .panel.shut .body{display:none}
-    .panel.shut{width:auto;min-width:220px}
-  }
+  .panel.shut .body{display:none}
+  @media (min-width:760px){ .panel.shut{width:auto;min-width:220px} }
 
   .place{
     display:flex;gap:8px;align-items:center;
@@ -937,50 +935,54 @@ function updatePeek(){
   el('peek').textContent = bits.join(' · ');
 }
 
-const panel = el('panel'), handle = el('grab');
+const panel = el('panel'), handle = el('grab'), body = el('body');
 const sheet = () => window.matchMedia('(max-width:759px)').matches;
 let shut = false, drag = null;
 
-// how far down the sheet slides to leave only the handle showing
-function hidden(){
-  const handle = handle.getBoundingClientRect().height;
-  return Math.max(0, panel.getBoundingClientRect().height - handle - 6);
-}
-function offset(px){
-  panel.style.transform = px ? `translateY(${px}px)` : '';
-}
+function offset(px){ panel.style.transform = px ? `translateY(${px}px)` : ''; }
 
 function setDrawer(open){
   shut = !open;
-  panel.classList.toggle('shut', shut);
+  panel.classList.toggle('shut', shut);          // this alone collapses it
+  offset(0);
   handle.setAttribute('aria-expanded', open);
   handle.setAttribute('aria-label', open ? 'Collapse controls' : 'Expand controls');
   updatePeek();
-  requestAnimationFrame(() => offset(sheet() && shut ? hidden() : 0));
 }
 
 function dragStart(y, capture){
   if (!sheet()){ drag = { tapOnly: true }; return; }
   if (capture) capture();
+  // opening from shut: show the body first, parked off-screen, then follow the finger up
+  const wasShut = shut;
+  if (wasShut){ panel.classList.remove('shut'); shut = false; }
+  const span = Math.max(60, body.offsetHeight);
   panel.classList.add('dragging');
-  drag = { y, t: Date.now(), from: shut ? hidden() : 0, moved: 0 };
+  drag = { y, t: Date.now(), from: wasShut ? span : 0, span, moved: 0, wasShut };
+  offset(drag.from);
 }
 function dragMove(y){
   if (!drag || drag.tapOnly) return;
   const dy = y - drag.y;
   drag.moved = Math.max(drag.moved, Math.abs(dy));
-  offset(Math.min(hidden(), Math.max(0, drag.from + dy)));   // follow the finger, within bounds
+  offset(Math.min(drag.span, Math.max(0, drag.from + dy)));
 }
 function dragEnd(y){
   if (!drag) return;
   const d = drag; drag = null;
   panel.classList.remove('dragging');
-  if (d.tapOnly || d.moved < 6){ setDrawer(shut); return; }   // a tap still toggles
+  if (d.tapOnly || d.moved < 6){ setDrawer(d.wasShut === undefined ? shut : d.wasShut); return; }
 
   const dy = y - d.y;
-  const speed = dy / Math.max(1, Date.now() - d.t);           // px per ms
-  if (Math.abs(speed) > 0.5) setDrawer(speed < 0);            // a flick wins
-  else setDrawer(d.from + dy < hidden() / 2);                 // otherwise snap to the nearer end
+  const speed = dy / Math.max(1, Date.now() - d.t);      // px per ms
+  if (Math.abs(speed) > 0.5) setDrawer(speed < 0);       // a flick decides
+  else setDrawer(d.from + dy < d.span / 2);              // otherwise snap to the nearer end
+}
+function dragCancel(){
+  if (!drag) return;
+  const d = drag; drag = null;
+  panel.classList.remove('dragging');
+  setDrawer(!d.wasShut);
 }
 
 if (window.PointerEvent){
@@ -988,7 +990,7 @@ if (window.PointerEvent){
     dragStart(e.clientY, () => { try { handle.setPointerCapture(e.pointerId); } catch(err){} }));
   handle.addEventListener('pointermove', e => dragMove(e.clientY));
   handle.addEventListener('pointerup', e => dragEnd(e.clientY));
-  handle.addEventListener('pointercancel', () => { drag = null; panel.classList.remove('dragging'); setDrawer(!shut); });
+  handle.addEventListener('pointercancel', dragCancel);
 } else {
   handle.addEventListener('touchstart', e => dragStart(e.touches[0].clientY), { passive: true });
   handle.addEventListener('touchmove', e => { dragMove(e.touches[0].clientY); e.preventDefault(); }, { passive: false });
@@ -996,7 +998,7 @@ if (window.PointerEvent){
   handle.addEventListener('click', () => { if (!drag) setDrawer(shut); });
 }
 
-window.addEventListener('resize', () => offset(sheet() && shut ? hidden() : 0));
+window.addEventListener('resize', () => offset(0));
 
 /* ---------- start ---------- */
 el('swatch').style.background = getCSS('--walk');
