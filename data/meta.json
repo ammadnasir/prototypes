@@ -1,5 +1,5 @@
 {
-  "generated": "2026-09-14T01:53:14Z",
+  "generated": "2026-09-14T11:18:05Z",
   "zone_field": "ZN_ZONE",
   "parcels_residential": 6582,
   "parcels_by_form": {
@@ -31,21 +31,14 @@
     "RS",
     "RT"
   ],
-  "density": {
-    "areas": 3225,
-    "breaks": [
-      3268,
-      5078,
-      7793,
-      11777
-    ],
-    "dwelling_breaks": [
-      1200,
-      2040,
-      3340,
-      5575
-    ],
-    "megabytes": 1.86,
-    "generated": "2026-09-14T01:55:18Z"
+  "gap_homes": {
+    "buildings": 3338,
+    "by_form": {
+      "other": 1659,
+      "apartments": 786,
+      "houses": 893
+    },
+    "megabytes": 0.93,
+    "generated": "2026-09-14T11:19:25Z"
   }
 }
