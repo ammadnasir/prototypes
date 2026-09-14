@@ -19,6 +19,7 @@
     --unknown:#8C8578;
     --f-houses:#C4568E;      /* houses, pink */
     --f-multiplex:#3D6FA8;   /* multiplexes and low-rise, blue */
+    --f-mid:#5B84C4;         /* mid-rise, 4 to 11 storeys */
     --f-towers:#7E57A8;      /* apartments, condos, towers, purple */
     --f-parks:#4E8C57;
     --on-ink:#E9F0F3;
@@ -244,11 +245,6 @@
     <label class="switch"><input type="checkbox" id="direct" checked> One vehicle only, no transfers</label>
   </div>
 
-  <div class="forms on" id="view" role="group" aria-label="What to show">
-    <button data-view="zoning" aria-pressed="true">Zoning</button>
-    <button data-view="density" aria-pressed="false">People per km²</button>
-  </div>
-
   <div class="readout">
     <span class="num" id="num">20</span>
     <span class="unit">minutes from the pin</span>
@@ -287,7 +283,7 @@ let clock = 8.5;            // hours on a 5:00-to-29:00 axis
 let direct = true;          // one vehicle only
 let homesOnly = true;       // clip the shape to residential zoning
 let forms = new Set(['houses','multiplex','towers','parks']);
-let view = 'zoning';
+const view = 'zoning';   // the density view has been retired
 const DENSITY_COLOURS = ['#DCE6EE', '#A9C2D8', '#6E93B8', '#3E6890', '#1F4166'];
 let arriving = true;        // the clock is an arrival time at Fort York
 let minutes = 20;
@@ -561,9 +557,10 @@ const FORM_COLOUR = { houses:'--f-houses', multiplex:'--f-houses',
                       towers:'--f-towers', parks:'--f-parks' };
 // one legend row per colour, not per zoning category
 const LEGEND_GROUPS = [
-  { forms:['houses','multiplex'], colour:'--f-houses', label:'houses and multiplexes' },
-  { forms:['towers'],             colour:'--f-towers', label:'apartments, condos and towers' },
-  { forms:['parks'],              colour:'--f-parks',  label:'parks and open space' }
+  { forms:['houses','multiplex','lowrise'], colour:'--f-houses', label:'houses and low-rise' },
+  { forms:['midrise'],                      colour:'--f-mid',    label:'mid-rise, 4 to 11 storeys' },
+  { forms:['towers','highrise'],            colour:'--f-towers', label:'high-rise, 12 storeys and up' },
+  { forms:['parks'],                        colour:'--f-parks',  label:'parks and open space' }
 ];
 const FORM_LABEL = { houses:'houses, semis and towns',
                      multiplex:'multiplexes and low-rise',
@@ -600,8 +597,9 @@ async function loadGapHomes(){
   return gapHomes;
 }
 // buildings reuse the zoning colours exactly, so one legend covers both
-const GAP_BUILDING = { houses:'--f-houses', multiplex:'--f-houses',
-                       towers:'--f-towers', parks:'--f-parks' };
+const GAP_BUILDING = { houses:'--f-houses', lowrise:'--f-houses', midrise:'--f-mid',
+                       highrise:'--f-towers', parks:'--f-parks',
+                       multiplex:'--f-houses', towers:'--f-towers' };  // pre-height-tier data
 
 let densityData = null, densityErr = null;
 async function loadDensity(){
@@ -732,29 +730,7 @@ async function compute(){
 
     let homes = null, unknown = null, density = null, buildings = null;
 
-    if (view === 'density'){
-      noteEl.innerHTML = '<span class="busy"></span>Reading census density…';
-      const dd = await loadDensity();
-      if (my !== token) return;
-      if (dd){
-        let simple = shape;
-        try { simple = turf.simplify(shape, { tolerance: 0.0002, highQuality: false }); } catch(e){}
-        const breaks = (dd.properties || {}).breaks || [];
-        const inside = [];
-        for (const f of dd.features){
-          try {
-            if (turf.booleanPointInPolygon(turf.pointOnFeature(f), simple))
-              inside.push({ f, band: densityBand(f.properties.d, breaks) });
-          } catch(e){}
-        }
-        density = { areas: inside, breaks };
-        const ds = inside.map(x => x.f.properties.d).sort((a, b) => a - b);
-        const mid = ds.length ? ds[Math.floor(ds.length / 2)] : 0;
-        note += ` ${inside.length} census areas inside the shape, median ${mid.toLocaleString()} people per km². 2021 census, dissemination areas.`;
-      } else {
-        note += ` Density file didn't load (${densityErr.message}).`;
-      }
-    } else if (homesOnly){
+    if (homesOnly){
       noteEl.innerHTML = '<span class="busy"></span>Checking what the zoning allows…';
       const z = await loadZoning();
       if (my !== token) return;
@@ -846,17 +822,6 @@ el('homes').addEventListener('change', e => {
   el('forms').classList.toggle('on', homesOnly);
   compute();
 });
-
-for (const b of document.querySelectorAll('#view button')){
-  b.addEventListener('click', () => {
-    view = b.dataset.view;
-    for (const o of document.querySelectorAll('#view button'))
-      o.setAttribute('aria-pressed', o.dataset.view === view);
-    el('homes').parentElement.style.display = view === 'zoning' ? '' : 'none';
-    el('forms').classList.toggle('on', view === 'zoning' && homesOnly);
-    compute();
-  });
-}
 
 for (const b of document.querySelectorAll('#dir button')){
   b.addEventListener('click', () => {
