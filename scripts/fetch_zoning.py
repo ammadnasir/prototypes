@@ -31,13 +31,14 @@ BBOX = (-79.58, 43.58, -79.26, 43.80)
 # Split by built form, because "where can I buy a house" and "where can I buy a
 # condo" are different questions with very different answers in Toronto.
 FORMS = {
-    "houses":     {"R", "RD", "RS", "RT"},   # detached, semi, town
-    "apartments": {"RM", "RA"},              # multiplex and apartment
-    "mixed":      {"CR", "CRE"},             # dwellings above commercial
+    "houses":     {"R", "RD", "RS", "RT"},                  # detached, semi, town
+    "apartments": {"RM", "RA"},                             # multiplex and apartment
+    "mixed":      {"CR", "CRE"},                            # dwellings above commercial
+    "parks":      {"O", "ON", "OR", "OG", "OM", "OC"},      # open space and parkland
 }
-HOME = set().union(*FORMS.values())
+HOME = {"R", "RD", "RS", "RT", "RM", "RA", "CR", "CRE"}
 OTHER = {"CL", "C", "EL", "EH", "EO", "E", "IH", "IPU", "IE", "I",
-         "ON", "OR", "OG", "OM", "OC", "O", "UT"}
+         "ON", "OR", "OG", "OM", "OC", "O", "UT"}   # everything the map leaves blank
 ALL = HOME | OTHER
 
 PAGE = 1000
@@ -148,7 +149,8 @@ def main():
     for name, codes in FORMS.items():
         raw = fetch_polygons(ZONING, in_list(codes), name, field)
         by_form[name] = raw
-        homes_raw += raw
+        if name != "parks":
+            homes_raw += raw
     if not homes_raw:
         raise SystemExit("No residential zoning returned - refusing to overwrite good data.")
     other_raw = fetch_polygons(ZONING, in_list(OTHER), "other zones", field)
