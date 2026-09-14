@@ -20,6 +20,7 @@
     --f-houses:#C4568E;      /* houses, pink */
     --f-multiplex:#3D6FA8;   /* multiplexes and low-rise, blue */
     --f-mid:#5B84C4;         /* mid-rise, 4 to 11 storeys */
+    --f-res:#6E7C91;         /* a home, height not recorded */
     --f-towers:#7E57A8;      /* apartments, condos, towers, purple */
     --f-parks:#4E8C57;
     --on-ink:#E9F0F3;
@@ -560,6 +561,7 @@ const LEGEND_GROUPS = [
   { forms:['houses','multiplex','lowrise'], colour:'--f-houses', label:'houses and low-rise' },
   { forms:['midrise'],                      colour:'--f-mid',    label:'mid-rise, 4 to 11 storeys' },
   { forms:['towers','highrise'],            colour:'--f-towers', label:'high-rise, 12 storeys and up' },
+  { forms:['residential'],                  colour:'--f-res',    label:'home, height not recorded' },
   { forms:['parks'],                        colour:'--f-parks',  label:'parks and open space' }
 ];
 const FORM_LABEL = { houses:'houses, semis and towns',
@@ -599,6 +601,7 @@ async function loadGapHomes(){
 // buildings reuse the zoning colours exactly, so one legend covers both
 const GAP_BUILDING = { houses:'--f-houses', lowrise:'--f-houses', midrise:'--f-mid',
                        highrise:'--f-towers', parks:'--f-parks',
+                       residential:'--f-res',
                        multiplex:'--f-houses', towers:'--f-towers' };  // pre-height-tier data
 
 let densityData = null, densityErr = null;
@@ -652,13 +655,14 @@ function paint(shape, stops, homes, unknown, density, buildings){
       buildingLayer = L.layerGroup(buildings.map(f => {
         const c = GAP_BUILDING[f.properties.form];
         if (!c) return L.geoJSON(f, { style:{ color:'#8C8578', weight:.5, opacity:.55, fill:false } });
-        return L.geoJSON(f, { style:{ stroke:false, fillColor: getCSS(c), fillOpacity:.5 } });
+        return L.geoJSON(f, { style:{ stroke:false, fillColor: getCSS(c), fillOpacity:.8 } });
       })).addTo(map);
     }
 
     homesLayer = L.layerGroup((homes || []).map(p => {
       const c = getCSS(FORM_COLOUR[p.form]);
-      return L.geoJSON(p.feature, { style:{ stroke:false, fillColor:c, fillOpacity:.5 } });
+      // zoning is permission, not buildings - keep it as a wash behind the footprints
+      return L.geoJSON(p.feature, { style:{ stroke:false, fillColor:c, fillOpacity:.2 } });
     })).addTo(map);
     shapeLayer = L.geoJSON(shape, {
       style:{ color: colour, weight: 1.5, opacity: .85, fill: false, dashArray: '4 3' }
@@ -896,8 +900,9 @@ function paintLegend(pieces, stops, density, buildings){
     if (!g.forms.some(f => seen.has(f))) continue;
     rows.push(`<div class="row"><span class="sw" style="background:${getCSS(g.colour)}"></span>${g.label}</div>`);
   }
-  if ((buildings || []).some(f => !FORM_COLOUR[f.properties.form]))
+  if ((buildings || []).some(f => !GAP_BUILDING[f.properties.form]))
     rows.push('<div class="row"><span class="sw" style="background:transparent;border:1px solid #8C8578"></span>other building</div>');
+  rows.push('<div class="hdr">pale wash is zoning, solid is a building</div>');
 
   el('legend').innerHTML = rows.join('');
 }
