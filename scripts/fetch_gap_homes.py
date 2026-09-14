@@ -63,7 +63,7 @@ def classify(tags):
         lv = storeys(tags)
         if lv is None:
             return "apartments_unknown"        # counted, then resolved below
-        return "towers" if lv >= 8 else "multiplex"
+        return band(lv)
     if kind in ("commercial", "retail", "office", "industrial", "warehouse",
                 "school", "university", "hospital", "church", "civic",
                 "public", "hotel", "parking", "garage", "garages", "roof",
@@ -71,8 +71,16 @@ def classify(tags):
         return None                      # clearly not somewhere you live
     levels = storeys(tags)
     if kind in ("yes", "") and levels and levels >= 4:
-        return "towers" if levels >= 8 else "multiplex"
+        return band(levels)
     return "other"
+
+
+def band(levels):
+    """Three tiers, because a five-storey block and a fifty-storey tower
+    are not the same thing to live next to."""
+    if levels < 4:
+        return "lowrise"
+    return "midrise" if levels < 12 else "highrise"
 
 
 def storeys(tags):
@@ -123,8 +131,8 @@ def main():
         except Exception:                              # noqa: BLE001
             continue
         if form == "apartments_unknown":
-            form = "towers"      # downtown, an untagged apartment block is almost always tall
-            counts["towers_assumed"] = counts.get("towers_assumed", 0) + 1
+            form = "highrise"    # downtown, an untagged apartment block is almost always tall
+            counts["highrise_assumed"] = counts.get("highrise_assumed", 0) + 1
         counts[form] = counts.get(form, 0) + 1
         feats.append({"type": "Feature",
                       "properties": {"form": form},
