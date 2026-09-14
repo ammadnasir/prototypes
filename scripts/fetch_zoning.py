@@ -31,10 +31,12 @@ BBOX = (-79.58, 43.58, -79.26, 43.80)
 # Split by built form, because "where can I buy a house" and "where can I buy a
 # condo" are different questions with very different answers in Toronto.
 FORMS = {
-    "houses":     {"R", "RD", "RS", "RT"},                  # detached, semi, town
-    "apartments": {"RM", "RA"},                             # multiplex and apartment
-    "mixed":      {"CR", "CRE"},                            # dwellings above commercial
-    "parks":      {"O", "ON", "OR", "OG", "OM", "OC"},      # open space and parkland
+    "houses":    {"RD", "RS", "RT"},                       # detached, semi, townhouse
+    "multiplex": {"R", "RM"},                              # R permits a range up to small
+                                                           # multiplexes; RM is multiple dwelling
+    "towers":    {"RA", "CR", "CRE"},                      # apartment zones, and dwellings
+                                                           # above commercial
+    "parks":     {"O", "ON", "OR", "OG", "OM", "OC"},      # open space and parkland
 }
 HOME = {"R", "RD", "RS", "RT", "RM", "RA", "CR", "CRE"}
 OTHER = {"CL", "C", "EL", "EH", "EO", "E", "IH", "IPU", "IE", "I",
