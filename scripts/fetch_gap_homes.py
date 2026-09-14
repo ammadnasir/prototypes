@@ -28,14 +28,16 @@ HOUSE = {"house", "detached", "semidetached_house", "terrace", "houses", "bungal
 APARTMENT = {"apartments", "residential", "dormitory", "condominium"}
 WANTED = HOUSE | APARTMENT
 
-MIN_GAP_AREA = 4e-6      # only chase gaps bigger than roughly 4 hectares
-MAX_GAPS = 40
+# One query over the downtown window beats forty over scattered gaps: Overpass
+# rate-limits per request, so the round trips cost far more than the data.
+WINDOW = (43.612, -79.48, 43.695, -79.31)   # south, west, north, east
 SIMPLIFY_DEG = 0.000015  # about 1.5 m, keeps building corners honest
 
 
 def overpass(south, west, north, east, tries=3):
-    q = f"""[out:json][timeout:180];
-(way["building"~"^(house|detached|semidetached_house|terrace|houses|bungalow|apartments|residential|dormitory|condominium)$"]({south},{west},{north},{east}););
+    # every building in the window; classification happens below
+    q = f"""[out:json][timeout:240];
+(way["building"]({south},{west},{north},{east}););
 out geom;"""
     for attempt in range(tries):
         try:
@@ -49,47 +51,60 @@ out geom;"""
     return {"elements": []}
 
 
+def classify(tags):
+    kind = (tags or {}).get("building", "")
+    if kind in HOUSE:
+        return "houses"
+    if kind in APARTMENT:
+        return "apartments"
+    if kind in ("commercial", "retail", "office", "industrial", "warehouse",
+                "school", "university", "hospital", "church", "civic",
+                "public", "hotel", "parking", "garage", "garages", "roof",
+                "shed", "service", "train_station", "stadium"):
+        return None                      # clearly not somewhere you live
+    levels = (tags or {}).get("building:levels")
+    try:
+        if kind in ("yes", "") and levels and float(levels) >= 4:
+            return "apartments"          # a tall untagged building downtown
+    except ValueError:
+        pass
+    return "other"
+
+
 def main():
     if not os.path.exists(GAP_FILE):
         raise SystemExit(f"{GAP_FILE} is missing - run the zoning job first.")
     gap = shape(json.load(open(GAP_FILE))["geometry"])
-    parts = list(gap.geoms) if hasattr(gap, "geoms") else [gap]
-    big = sorted([p for p in parts if p.area > MIN_GAP_AREA],
-                 key=lambda p: -p.area)[:MAX_GAPS]
-    print(f"{len(parts)} gaps, {len(big)} big enough to search")
-    if not big:
-        raise SystemExit("No sizeable gaps found.")
+    hunted = gap.intersection(box(WINDOW[1], WINDOW[0], WINDOW[3], WINDOW[2]))
+    print(f"searching {round(hunted.area * 1e4, 1)} (deg^2 x 1e4) of zoning gap")
 
-    hunted = unary_union(big)
-    feats, seen = [], set()
-    for i, part in enumerate(big, 1):
-        w, s, e, n = part.bounds
-        print(f"  gap {i}/{len(big)} bbox {round(w,3)},{round(s,3)},{round(e,3)},{round(n,3)}")
-        data = overpass(s, w, n, e)
-        for el in data.get("elements", []):
-            if el.get("id") in seen or "geometry" not in el:
-                continue
-            kind = (el.get("tags") or {}).get("building", "")
-            if kind not in WANTED:
-                continue
-            ring = [(p["lon"], p["lat"]) for p in el["geometry"]]
-            if len(ring) < 4:
-                continue
-            try:
-                poly = Polygon(ring)
-                if not poly.is_valid:
-                    poly = poly.buffer(0)
-                if poly.is_empty or not poly.representative_point().within(hunted):
-                    continue
-            except Exception:                          # noqa: BLE001
-                continue
-            seen.add(el["id"])
-            feats.append({"type": "Feature",
-                          "properties": {"form": "houses" if kind in HOUSE else "apartments"},
-                          "geometry": mapping(poly.simplify(SIMPLIFY_DEG, preserve_topology=True))})
-        time.sleep(3)      # be polite to a shared public service
+    data = overpass(*WINDOW)
+    print(f"  {len(data.get('elements', []))} buildings returned")
 
-    print(f"  {len(feats)} residential buildings inside the gaps")
+    feats, counts = [], {}
+    for el in data.get("elements", []):
+        if "geometry" not in el:
+            continue
+        form = classify(el.get("tags"))
+        if form is None:
+            continue
+        ring = [(p["lon"], p["lat"]) for p in el["geometry"]]
+        if len(ring) < 4:
+            continue
+        try:
+            poly = Polygon(ring)
+            if not poly.is_valid:
+                poly = poly.buffer(0)
+            if poly.is_empty or not poly.representative_point().within(hunted):
+                continue
+        except Exception:                              # noqa: BLE001
+            continue
+        counts[form] = counts.get(form, 0) + 1
+        feats.append({"type": "Feature",
+                      "properties": {"form": form},
+                      "geometry": mapping(poly.simplify(SIMPLIFY_DEG, preserve_topology=True))})
+    print(f"  inside the gaps: {counts}")
+
     if not feats:
         raise SystemExit("Found no buildings - refusing to overwrite good data.")
 
@@ -104,7 +119,7 @@ def main():
     print(f"wrote {OUT} ({mb:.2f} MB)")
 
     meta = json.load(open("data/meta.json")) if os.path.exists("data/meta.json") else {}
-    meta["gap_homes"] = {"buildings": len(feats), "megabytes": round(mb, 2),
+    meta["gap_homes"] = {"buildings": len(feats), "by_form": counts, "megabytes": round(mb, 2),
                          "generated": time.strftime("%Y-%m-%dT%H:%M:%SZ")}
     json.dump(meta, open("data/meta.json", "w"), indent=2)
 
