@@ -1,11 +1,11 @@
 {
-  "generated": "2026-09-14T11:18:05Z",
+  "generated": "2026-09-14T15:33:38Z",
   "zone_field": "ZN_ZONE",
-  "parcels_residential": 6582,
+  "parcels_residential": 6580,
   "parcels_by_form": {
-    "houses": 3007,
-    "apartments": 1401,
-    "mixed": 2174,
+    "houses": 2101,
+    "multiplex": 1706,
+    "towers": 2773,
     "parks": 1325
   },
   "parcels_other": 2025,
@@ -32,13 +32,33 @@
     "RT"
   ],
   "gap_homes": {
-    "buildings": 3338,
+    "buildings": 6492,
     "by_form": {
-      "other": 1659,
-      "apartments": 786,
-      "houses": 893
+      "other": 1650,
+      "multiplex": 297,
+      "towers_assumed": 202,
+      "towers": 498,
+      "houses": 893,
+      "parks": 3154
     },
-    "megabytes": 0.93,
-    "generated": "2026-09-14T11:19:25Z"
+    "megabytes": 1.87,
+    "generated": "2026-09-14T15:34:39Z"
+  },
+  "density": {
+    "areas": 3225,
+    "breaks": [
+      3268,
+      5078,
+      7793,
+      11777
+    ],
+    "dwelling_breaks": [
+      1200,
+      2040,
+      3340,
+      5575
+    ],
+    "megabytes": 1.86,
+    "generated": "2026-09-14T15:37:16Z"
   }
 }

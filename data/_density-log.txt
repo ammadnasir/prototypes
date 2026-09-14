@@ -1,15 +1,13 @@
   downloading 98100015-eng.zip
-Traceback (most recent call last):
-  File "/home/runner/work/prototypes/prototypes/scripts/fetch_density.py", line 191, in <module>
-    main()
-  File "/home/runner/work/prototypes/prototypes/scripts/fetch_density.py", line 147, in main
-    counts = load_counts()
-             ^^^^^^^^^^^^^
-  File "/home/runner/work/prototypes/prototypes/scripts/fetch_density.py", line 51, in load_counts
-    zf = zipfile.ZipFile(io.BytesIO(raw))
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/opt/hostedtoolcache/Python/3.12.14/x64/lib/python3.12/zipfile/__init__.py", line 1371, in __init__
-    self._RealGetContents()
-  File "/opt/hostedtoolcache/Python/3.12.14/x64/lib/python3.12/zipfile/__init__.py", line 1438, in _RealGetContents
-    raise BadZipFile("File is not a zip file")
-zipfile.BadZipFile: File is not a zip file
+  counts file: 98100015.csv
+  columns: ['REF_DATE', 'GEO', 'DGUID', 'Coordinate', 'Population and dwelling counts (5): Population, 2021 [1]', 'Symbols', 'Population and dwelling counts (5): Total private dwellings, 2021 [2]', 'Symbols', 'Population and dwelling counts (5): Private dwellings occupied by usual residents, 2021 [3]', 'Symbols', 'Population and dwelling counts (5): Land area in square kilometres, 2021 [4]', 'Symbols']
+  using columns dguid=2 density=12 pop=4 area=10 dwellings=6
+  57757 dissemination areas with counts, sample ('10010725', (4.0, 3.1404958677685952))
+  downloading lda_000b21a_e.zip
+  shapefile: lda_000b21a_e
+  fields: ['DAUID', 'DGUID', 'LANDAREA', 'PRUID']
+  3225 areas inside the window
+  3225 areas matched to counts
+wrote data/density-da.geojson (1.86 MB), 3225 areas
+  people/km2 breaks [3268, 5078, 7793, 11777]
+  dwellings/km2 breaks [1200, 2040, 3340, 5575]
