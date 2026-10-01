@@ -1,19 +1,19 @@
 {
-  "generated": "2026-09-14T16:24:36Z",
+  "generated": "2026-10-01T15:27:00Z",
   "zone_field": "ZN_ZONE",
-  "parcels_residential": 6580,
+  "parcels_residential": 6905,
   "parcels_by_form": {
-    "houses": 2101,
-    "multiplex": 1706,
-    "towers": 2773,
-    "parks": 1325
+    "houses": 2192,
+    "multiplex": 1776,
+    "towers": 2937,
+    "parks": 1327
   },
-  "parcels_other": 2025,
+  "parcels_other": 2029,
   "ward_polygons": 23,
   "megabytes": {
-    "forms": 1.49,
-    "residential": 1.02,
-    "nodata": 0.49
+    "forms": 1.51,
+    "residential": 1.04,
+    "nodata": 0.48
   },
   "bbox": [
     -79.58,
@@ -32,18 +32,18 @@
     "RT"
   ],
   "gap_homes": {
-    "buildings": 6492,
+    "buildings": 6337,
     "by_form": {
-      "other": 1650,
-      "midrise": 252,
-      "residential": 202,
+      "other": 1605,
+      "midrise": 250,
+      "residential": 194,
       "highrise": 209,
-      "lowrise": 132,
-      "houses": 893,
-      "parks": 3154
+      "lowrise": 128,
+      "houses": 807,
+      "parks": 3144
     },
-    "megabytes": 1.87,
-    "generated": "2026-09-14T16:25:20Z"
+    "megabytes": 1.83,
+    "generated": "2026-10-01T15:28:58Z"
   },
   "density": {
     "areas": 3225,
@@ -60,6 +60,6 @@
       5575
     ],
     "megabytes": 1.86,
-    "generated": "2026-09-14T16:28:15Z"
+    "generated": "2026-10-01T15:31:33Z"
   }
 }
